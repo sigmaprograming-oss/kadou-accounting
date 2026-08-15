@@ -122,18 +122,18 @@ async function saveState() {
   showSaveStatus("保存中…", false);
 
   try {
- await fetch(GAS_URL, {
-  method: "POST",
-  mode: "no-cors",
-  headers: {
-    "Content-Type": "text/plain;charset=utf-8",
-  },
-  body: JSON.stringify({
-    state: state,
-  }),
-});
+    await fetch(GAS_URL, {
+      method: "POST",
+      mode: "no-cors",
+      headers: {
+        "Content-Type": "text/plain;charset=utf-8",
+      },
+      body: JSON.stringify({
+        state: state,
+      }),
+    });
 
-showSaveStatus("スプレッドシート保存済み", true);
+    showSaveStatus("スプレッドシート保存済み", true);
   } catch (error) {
     console.error("Googleスプレッドシートへの保存に失敗:", error);
     showSaveStatus("端末には保存済み・スプレッドシート保存失敗", false);
