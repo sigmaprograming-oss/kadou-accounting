@@ -78,11 +78,14 @@
       </section>
 
       <section class="toolbar" aria-label="操作">
+        <button id="saveNow" type="button">保存</button>
+        <span id="saveStatus" class="save-status">自動保存中</span>
         <button id="promoteGrades" type="button">学年を一括 +1</button>
+        <button id="openImport" type="button">Excel貼り付け登録</button>
         <button id="settleSuggested" type="button">未収金をまとめて入金</button>
         <button id="exportCsv" type="button">CSV出力</button>
         <button id="exportExcel" type="button">Excel出力</button>
-        <button id="resetDemo" type="button">初期データに戻す</button>
+        <button id="resetDemo" type="button">まっさらに戻す</button>
       </section>
 
       <section class="member-list" aria-label="部員別会計">
@@ -164,6 +167,25 @@
           <menu>
             <button value="cancel" type="button" id="cancelNotes">キャンセル</button>
             <button value="confirm" type="submit">保存</button>
+          </menu>
+        </form>
+      </dialog>
+
+      <dialog id="importDialog" class="wide-dialog">
+        <form method="dialog" id="importForm" class="dialog-form">
+          <div>
+            <p class="dialog-kicker">Excelで表をコピーして貼り付け</p>
+            <h2>部員をまとめて登録</h2>
+          </div>
+          <div class="field">
+            <label for="importText">貼り付け内容</label>
+            <textarea id="importText" rows="10" placeholder="No.	学部	学年	名前	先月末	..."></textarea>
+          </div>
+          <p id="importPreview" class="import-preview">貼り付けると読み取り結果が出ます。</p>
+          <menu>
+            <button value="cancel" type="button" id="cancelImport">キャンセル</button>
+            <button value="append" type="button" id="appendImport">追加登録</button>
+            <button value="replace" type="submit">全員入れ替え</button>
           </menu>
         </form>
       </dialog>

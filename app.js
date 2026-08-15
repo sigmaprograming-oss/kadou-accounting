@@ -11,48 +11,7 @@ const initialState = {
   settings: {
     monthlyFee: fixedMonthlyFee,
   },
-  members: [
-    "上田",
-    "門田",
-    "西脇",
-    "伊藤大輔",
-    "坂口",
-    "月原",
-    "成",
-    "朝倉",
-    "村上",
-    "和田",
-    "伊沢",
-    "曽田",
-    "向谷",
-    "西尾",
-    "佐藤",
-    "大沼",
-    "堀井",
-    "江川",
-    "田中",
-    "河野奈菜世",
-    "河野琳",
-    "須田",
-    "内田",
-    "宮木",
-    "岩田",
-    "中山",
-    "吉本",
-    "福山",
-    "長谷川",
-    "福井",
-    "山岡",
-    "脇田",
-    "木下",
-  ].map((name) => ({
-    id: crypto.randomUUID(),
-    name,
-    grade: 1,
-    paused: false,
-    priorArrears: 0,
-    notes: "",
-  })),
+  members: [],
   months: {},
 };
 
@@ -94,6 +53,15 @@ const els = {
   notesMember: document.querySelector("#notesMember"),
   notesText: document.querySelector("#notesText"),
   cancelNotes: document.querySelector("#cancelNotes"),
+  importDialog: document.querySelector("#importDialog"),
+  importForm: document.querySelector("#importForm"),
+  importText: document.querySelector("#importText"),
+  importPreview: document.querySelector("#importPreview"),
+  cancelImport: document.querySelector("#cancelImport"),
+  appendImport: document.querySelector("#appendImport"),
+  openImport: document.querySelector("#openImport"),
+  saveNow: document.querySelector("#saveNow"),
+  saveStatus: document.querySelector("#saveStatus"),
   promoteGrades: document.querySelector("#promoteGrades"),
   settleSuggested: document.querySelector("#settleSuggested"),
   exportCsv: document.querySelector("#exportCsv"),
@@ -141,7 +109,7 @@ function normalizeState(savedState) {
     name: member.name || "名前未設定",
     grade: Math.max(Number(member.grade) || 1, 1),
     paused: Boolean(member.paused),
-    priorArrears: Math.max(Number(member.priorArrears) || 0, 0),
+    priorArrears: Number(member.priorArrears) || 0,
     notes: member.notes || "",
   }));
 
@@ -150,6 +118,12 @@ function normalizeState(savedState) {
 
 function saveState() {
   localStorage.setItem(storageKey, JSON.stringify(state));
+  showSaveStatus("保存済み", true);
+}
+
+function showSaveStatus(text, saved = false) {
+  els.saveStatus.textContent = text;
+  els.saveStatus.classList.toggle("saved", saved);
 }
 
 function monthData(month = selectedMonth) {
@@ -208,7 +182,7 @@ function memberLedger(member) {
   const attendance = memberAttendance(member.id, data);
   const lessons = attendance.filter(Boolean).length;
   const payments = data.payments[member.id] || [];
-  const priorArrears = Math.max(Number(member.priorArrears) || 0, 0);
+  const priorArrears = Number(member.priorArrears) || 0;
   const monthlyCharge = member.paused ? 0 : fixedMonthlyFee;
   const lessonCharge = data.lessons.reduce((sum, lesson, index) => {
     return sum + (attendance[index] ? Math.max(Number(lesson.fee) || 0, 0) : 0);
@@ -286,7 +260,7 @@ function render() {
       <input class="grade-input" data-action="grade" data-id="${member.id}" type="number" min="1" step="1" value="${member.grade}" aria-label="${escapeHtml(member.name)}さんの学年" />
       <span class="status ${member.paused ? "paused" : ""}">${member.paused ? "休部中" : "在籍"}</span>
       <span>${ledger.lessons}回</span>
-      <span class="amount ${ledger.priorArrears > 0 ? "due" : "settled"}">${yen.format(ledger.priorArrears)}</span>
+      <span class="amount ${amountClass(ledger.priorArrears)}">${yen.format(ledger.priorArrears)}</span>
       <span class="amount">${yen.format(ledger.charged)}</span>
       <span class="amount">${yen.format(ledger.paid)}</span>
       <span class="amount ${amountClass(ledger.due)}">${yen.format(ledger.due)}</span>
@@ -577,6 +551,164 @@ els.cancelNotes.addEventListener("click", () => {
 
 function appendMemberNote(member, text) {
   member.notes = [member.notes, text].filter(Boolean).join("\n");
+}
+
+els.openImport.addEventListener("click", () => {
+  els.importText.value = "";
+  updateImportPreview();
+  els.importDialog.showModal();
+});
+
+els.importText.addEventListener("input", updateImportPreview);
+
+els.cancelImport.addEventListener("click", () => {
+  els.importDialog.close();
+});
+
+els.appendImport.addEventListener("click", () => {
+  importMembersFromPaste("append");
+});
+
+els.importForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  importMembersFromPaste("replace");
+});
+
+function updateImportPreview() {
+  const parsed = parseImportedMembers(els.importText.value);
+  if (!els.importText.value.trim()) {
+    els.importPreview.textContent = "貼り付けると読み取り結果が出ます。";
+    return;
+  }
+
+  const sample = parsed.members
+    .slice(0, 5)
+    .map((member) => `${member.name}(${member.grade}年)`)
+    .join("、");
+  els.importPreview.textContent = parsed.members.length
+    ? `${parsed.members.length}人を読み取りました。${sample}${parsed.members.length > 5 ? "、..." : ""}`
+    : "名前を読み取れませんでした。名前列を含む表を貼り付けてください。";
+}
+
+function importMembersFromPaste(mode) {
+  const parsed = parseImportedMembers(els.importText.value);
+  if (!parsed.members.length) {
+    alert("読み取れる部員がありませんでした。Excelの表をコピーして貼り付けてください。");
+    return;
+  }
+
+  if (mode === "replace") {
+    const ok = confirm(`${parsed.members.length}人で部員リストを入れ替えますか？`);
+    if (!ok) return;
+    state.members = parsed.members;
+    addEvent(`Excel貼り付けから${parsed.members.length}人で部員リストを入れ替え`);
+  } else {
+    let added = 0;
+    let updated = 0;
+    parsed.members.forEach((importedMember) => {
+      const existing = state.members.find((member) => member.name === importedMember.name);
+      if (existing) {
+        existing.grade = importedMember.grade;
+        existing.priorArrears = importedMember.priorArrears;
+        existing.notes = importedMember.notes || existing.notes;
+        updated += 1;
+        return;
+      }
+
+      state.members.push(importedMember);
+      added += 1;
+    });
+    addEvent(`Excel貼り付けから${added}人追加、${updated}人更新`);
+  }
+
+  saveState();
+  els.importDialog.close();
+  render();
+}
+
+function parseImportedMembers(text) {
+  const rows = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map(splitImportRow)
+    .filter((row) => row.some(Boolean));
+
+  if (!rows.length) return { members: [] };
+
+  const headerIndex = rows.findIndex((row) =>
+    row.some((cell) => ["名前", "氏名"].includes(normalizeHeader(cell))),
+  );
+  const headers = headerIndex >= 0 ? rows[headerIndex].map(normalizeHeader) : [];
+  const dataRows = rows.slice(headerIndex >= 0 ? headerIndex + 1 : 0);
+  const indexes = headerIndex >= 0 ? importColumnIndexes(headers) : fallbackColumnIndexes();
+
+  const members = dataRows
+    .map((row) => importedRowToMember(row, indexes))
+    .filter(Boolean);
+
+  return { members };
+}
+
+function splitImportRow(line) {
+  if (line.includes("\t")) return line.split("\t").map((cell) => cell.trim());
+  return line.split(",").map((cell) => cell.trim().replace(/^"|"$/g, ""));
+}
+
+function normalizeHeader(value) {
+  return String(value).replace(/\s/g, "").replace("氏名", "名前");
+}
+
+function importColumnIndexes(headers) {
+  const find = (...names) => headers.findIndex((header) => names.includes(header));
+  return {
+    grade: find("学年", "年"),
+    name: find("名前"),
+    arrears: find("先月末", "先月までの滞納", "持越"),
+    status: find("状態"),
+    notes: find("備考"),
+  };
+}
+
+function fallbackColumnIndexes() {
+  return {
+    grade: 2,
+    name: 3,
+    arrears: 4,
+    status: -1,
+    notes: 10,
+  };
+}
+
+function importedRowToMember(row, indexes) {
+  const name = cleanImportedName(row[indexes.name]);
+  if (!name || name === "名前") return null;
+
+  return {
+    id: crypto.randomUUID(),
+    name,
+    grade: parseGrade(row[indexes.grade]),
+    paused: row[indexes.status] ? row[indexes.status].includes("休") : false,
+    priorArrears: parseAmount(row[indexes.arrears]),
+    notes: row[indexes.notes] || "",
+  };
+}
+
+function cleanImportedName(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, "");
+}
+
+function parseGrade(value) {
+  const match = String(value || "").match(/-?\d+/);
+  return match ? Math.max(Number(match[0]), 1) : 1;
+}
+
+function parseAmount(value) {
+  const normalized = String(value || "").replace(/[￥¥,\s]/g, "");
+  const amount = Number(normalized);
+  return Number.isFinite(amount) ? amount : 0;
 }
 
 els.history.addEventListener("click", (event) => {

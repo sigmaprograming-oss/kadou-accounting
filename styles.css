@@ -214,6 +214,7 @@ textarea {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  align-items: center;
   margin: 12px 0 16px;
 }
 
@@ -221,6 +222,17 @@ textarea {
 .row-actions button,
 menu button {
   padding: 0 12px;
+}
+
+.save-status {
+  color: var(--muted);
+  font-size: 13px;
+  min-width: 120px;
+}
+
+.save-status.saved {
+  color: var(--green);
+  font-weight: 700;
 }
 
 .member-list {
@@ -419,6 +431,11 @@ dialog {
   box-shadow: 0 30px 80px rgba(0, 0, 0, 0.25);
 }
 
+dialog.wide-dialog,
+.wide-dialog {
+  width: min(760px, calc(100% - 28px));
+}
+
 dialog::backdrop {
   background: rgba(20, 25, 31, 0.45);
 }
@@ -431,6 +448,13 @@ dialog::backdrop {
 .dialog-kicker {
   margin: 0 0 4px;
   color: var(--muted);
+}
+
+.import-preview {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
 }
 
 .segmented {
