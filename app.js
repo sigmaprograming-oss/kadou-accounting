@@ -5,6 +5,7 @@ const yen = new Intl.NumberFormat("ja-JP", {
 });
 
 const storageKey = "kadou-accounting-v1";
+const GAS_URL = "https://script.google.com/macros/s/AKfycbyJwKMlcR0pzxu4y1W9bf-m2949nFAYGBalyx0UxAFferykJ0108HjD7hwAXrq9L4vseQ/exec";
 const fixedMonthlyFee = 2000;
 const defaultLessonFee = 1300;
 const initialState = {
