@@ -5,7 +5,6 @@ const yen = new Intl.NumberFormat("ja-JP", {
 });
 
 const storageKey = "kadou-accounting-v1";
-const GAS_URL = "https://script.google.com/macros/s/AKfycbyJwKMlcR0pzxu4y1W9bf-m2949nFAYGBalyx0UxAFferykJ0108HjD7hwAXrq9L4vseQ/exec";
 const fixedMonthlyFee = 2000;
 const defaultLessonFee = 1300;
 const initialState = {
@@ -117,27 +116,9 @@ function normalizeState(savedState) {
   return nextState.members.length ? nextState : structuredClone(initialState);
 }
 
-async function saveState() {
+function saveState() {
   localStorage.setItem(storageKey, JSON.stringify(state));
-  showSaveStatus("保存中…", false);
-
-  try {
- await fetch(GAS_URL, {
-  method: "POST",
-  mode: "no-cors",
-  headers: {
-    "Content-Type": "text/plain;charset=utf-8",
-  },
-  body: JSON.stringify({
-    state: state,
-  }),
-});
-
-showSaveStatus("スプレッドシート保存済み", true);
-  } catch (error) {
-    console.error("Googleスプレッドシートへの保存に失敗:", error);
-    showSaveStatus("端末には保存済み・スプレッドシート保存失敗", false);
-  }
+  showSaveStatus("保存済み", true);
 }
 
 function showSaveStatus(text, saved = false) {
