@@ -117,9 +117,32 @@ function normalizeState(savedState) {
   return nextState.members.length ? nextState : structuredClone(initialState);
 }
 
-function saveState() {
+async function saveState() {
   localStorage.setItem(storageKey, JSON.stringify(state));
-  showSaveStatus("保存済み", true);
+  showSaveStatus("保存中…", false);
+
+  try {
+    const response = await fetch(GAS_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/plain;charset=utf-8",
+      },
+      body: JSON.stringify({
+        state: state,
+      }),
+    });
+
+    const result = await response.json();
+
+    if (!result.ok) {
+      throw new Error(result.error || "保存に失敗しました");
+    }
+
+    showSaveStatus("スプレッドシート保存済み", true);
+  } catch (error) {
+    console.error("Googleスプレッドシートへの保存に失敗:", error);
+    showSaveStatus("端末には保存済み・スプレッドシート保存失敗", false);
+  }
 }
 
 function showSaveStatus(text, saved = false) {
