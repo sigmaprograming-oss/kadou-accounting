@@ -183,7 +183,8 @@ function memberLedger(member) {
   const lessons = attendance.filter(Boolean).length;
   const payments = data.payments[member.id] || [];
   const priorArrears = Number(member.priorArrears) || 0;
-  const monthlyCharge = member.paused ? 0 : fixedMonthlyFee;
+  // 休部状態は月を切り替えても会員情報に残る。休部中でも稽古に参加した月は部費が発生する。
+  const monthlyCharge = member.paused && lessons === 0 ? 0 : fixedMonthlyFee;
   const lessonCharge = data.lessons.reduce((sum, lesson, index) => {
     return sum + (attendance[index] ? Math.max(Number(lesson.fee) || 0, 0) : 0);
   }, 0);
@@ -828,7 +829,7 @@ els.exportExcel.addEventListener("click", () => {
     .map((member, index) => {
       const ledger = memberLedger(member);
       const rowNumber = tableStartRow + index + 1;
-      const chargeFormula = `=IF(D${rowNumber}="休部中",0,2000)+IF(F${rowNumber}=1,$F$3,0)+IF(G${rowNumber}=1,$G$3,0)`;
+      const chargeFormula = `=IF(D${rowNumber}="休部中",IF(OR(F${rowNumber}=1,G${rowNumber}=1),2000,0),2000)+IF(F${rowNumber}=1,$F$3,0)+IF(G${rowNumber}=1,$G$3,0)`;
       const paidFormula = `=I${rowNumber}+J${rowNumber}`;
       const balanceFormula = `=E${rowNumber}+H${rowNumber}-K${rowNumber}`;
 
