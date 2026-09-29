@@ -32,6 +32,7 @@ const els = {
   addMemberForm: document.querySelector("#addMemberForm"),
   memberName: document.querySelector("#memberName"),
   memberGrade: document.querySelector("#memberGrade"),
+  memberFaculty: document.querySelector("#memberFaculty"),
   members: document.querySelector("#members"),
   totalCharged: document.querySelector("#totalCharged"),
   totalPaid: document.querySelector("#totalPaid"),
@@ -107,6 +108,7 @@ function normalizeState(savedState) {
   nextState.members = nextState.members.map((member) => ({
     id: member.id || crypto.randomUUID(),
     name: member.name || "名前未設定",
+    faculty: member.faculty || "",
     grade: Math.max(Number(member.grade) || 1, 1),
     paused: Boolean(member.paused),
     priorArrears: Number(member.priorArrears) || 0,
@@ -256,6 +258,7 @@ function render() {
     row.innerHTML = `
       <div class="member-name">
         <strong>${escapeHtml(member.name)}</strong>
+        <small>${escapeHtml(member.faculty || "学部未設定")}</small>
         <small>部費 ${yen.format(ledger.monthlyCharge)} / 稽古 ${yen.format(ledger.lessonCharge)}</small>
       </div>
       <input class="grade-input" data-action="grade" data-id="${member.id}" type="number" min="1" step="1" value="${member.grade}" aria-label="${escapeHtml(member.name)}さんの学年" />
@@ -372,11 +375,13 @@ function formatLesson(lesson) {
 els.addMemberForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const name = els.memberName.value.trim();
+  const faculty = els.memberFaculty.value.trim();
   const grade = Math.max(Number(els.memberGrade.value) || 1, 1);
   if (!name) return;
-  state.members.push({ id: crypto.randomUUID(), name, grade, paused: false, priorArrears: 0, notes: "" });
+  state.members.push({ id: crypto.randomUUID(), name, faculty, grade, paused: false, priorArrears: 0, notes: "" });
   addEvent(`${name}さんを追加`);
   els.memberName.value = "";
+  els.memberFaculty.value = "";
   els.memberGrade.value = "";
   saveState();
   render();
@@ -584,7 +589,7 @@ function updateImportPreview() {
 
   const sample = parsed.members
     .slice(0, 5)
-    .map((member) => `${member.name}(${member.grade}年)`)
+    .map((member) => `${member.name}(${member.faculty || "学部未設定"}・${member.grade}年)`)
     .join("、");
   els.importPreview.textContent = parsed.members.length
     ? `${parsed.members.length}人を読み取りました。${sample}${parsed.members.length > 5 ? "、..." : ""}`
@@ -609,6 +614,7 @@ function importMembersFromPaste(mode) {
     parsed.members.forEach((importedMember) => {
       const existing = state.members.find((member) => member.name === importedMember.name);
       if (existing) {
+        if (importedMember.faculty) existing.faculty = importedMember.faculty;
         existing.grade = importedMember.grade;
         existing.priorArrears = importedMember.priorArrears;
         existing.notes = importedMember.notes || existing.notes;
@@ -638,7 +644,7 @@ function parseImportedMembers(text) {
   if (!rows.length) return { members: [] };
 
   const headerIndex = rows.findIndex((row) =>
-    row.some((cell) => ["名前", "氏名"].includes(normalizeHeader(cell))),
+    row.some((cell) => ["名前", "氏名", "部員名"].includes(normalizeHeader(cell))),
   );
   const headers = headerIndex >= 0 ? rows[headerIndex].map(normalizeHeader) : [];
   const dataRows = rows.slice(headerIndex >= 0 ? headerIndex + 1 : 0);
@@ -657,14 +663,20 @@ function splitImportRow(line) {
 }
 
 function normalizeHeader(value) {
-  return String(value).replace(/\s/g, "").replace("氏名", "名前");
+  return String(value || "")
+    .normalize("NFKC")
+    .replace(/^\uFEFF/, "")
+    .replace(/\s/g, "")
+    .replace(/[（(].*?[）)]/g, "")
+    .replace("氏名", "名前");
 }
 
 function importColumnIndexes(headers) {
   const find = (...names) => headers.findIndex((header) => names.includes(header));
   return {
-    grade: find("学年", "年"),
-    name: find("名前"),
+    faculty: find("学部", "学部名", "所属学部"),
+    grade: find("学年", "年", "年次", "学年次"),
+    name: find("名前", "部員名"),
     arrears: find("先月末", "先月までの滞納", "持越"),
     status: find("状態"),
     notes: find("備考"),
@@ -673,6 +685,7 @@ function importColumnIndexes(headers) {
 
 function fallbackColumnIndexes() {
   return {
+    faculty: 1,
     grade: 2,
     name: 3,
     arrears: 4,
@@ -688,6 +701,7 @@ function importedRowToMember(row, indexes) {
   return {
     id: crypto.randomUUID(),
     name,
+    faculty: indexes.faculty >= 0 ? String(row[indexes.faculty] || "").trim() : "",
     grade: parseGrade(row[indexes.grade]),
     paused: row[indexes.status] ? row[indexes.status].includes("休") : false,
     priorArrears: parseAmount(row[indexes.arrears]),
@@ -702,7 +716,7 @@ function cleanImportedName(value) {
 }
 
 function parseGrade(value) {
-  const match = String(value || "").match(/-?\d+/);
+  const match = String(value || "").normalize("NFKC").match(/-?\d+/);
   return match ? Math.max(Number(match[0]), 1) : 1;
 }
 
@@ -765,6 +779,7 @@ els.exportCsv.addEventListener("click", () => {
       "月",
       "No.",
       "名前",
+      "学部",
       "学年",
       "状態",
       "先月末",
@@ -789,6 +804,7 @@ els.exportCsv.addEventListener("click", () => {
         selectedMonth,
         index + 1,
         member.name,
+        member.faculty || "",
         member.grade,
         member.paused ? "休部中" : "在籍",
         ledger.priorArrears,
@@ -848,6 +864,7 @@ els.exportExcel.addEventListener("click", () => {
           <td class="${excelAmountClass(ledger.paid)}">${paidFormula}</td>
           <td class="${excelAmountClass(ledger.due)}">${balanceFormula}</td>
           <td class="notes">${escapeHtml(member.notes || "")}</td>
+          <td>${escapeHtml(member.faculty || "")}</td>
         </tr>
       `;
     })
@@ -872,20 +889,20 @@ els.exportExcel.addEventListener("click", () => {
       </head>
       <body>
         <table>
-          <tr><td class="title" colspan="13">${escapeHtml(title)}</td></tr>
+          <tr><td class="title" colspan="14">${escapeHtml(title)}</td></tr>
           <tr>
             <td class="meta" colspan="5">稽古日程・金額</td>
             <td>${escapeHtml(data.lessons[0].date || "")}</td>
             <td>${escapeHtml(data.lessons[1].date || "")}</td>
-            <td class="meta" colspan="6"></td>
+            <td class="meta" colspan="7"></td>
           </tr>
           <tr>
             <td class="meta" colspan="5"></td>
             <td>${data.lessons[0].fee}</td>
             <td>${data.lessons[1].fee}</td>
-            <td class="meta" colspan="6"></td>
+            <td class="meta" colspan="7"></td>
           </tr>
-          <tr><td class="meta" colspan="13"></td></tr>
+          <tr><td class="meta" colspan="14"></td></tr>
           <tr>
             <th>No.</th>
             <th>学年</th>
@@ -900,6 +917,7 @@ els.exportExcel.addEventListener("click", () => {
             <th>納金</th>
             <th>今月末</th>
             <th>備考</th>
+            <th>学部</th>
           </tr>
           ${rowsHtml}
         </table>
