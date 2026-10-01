@@ -82,7 +82,13 @@ function loadState() {
   if (!saved) return structuredClone(initialState);
 
   try {
-    return normalizeState(JSON.parse(saved));
+    const savedState = JSON.parse(saved);
+    const normalizedState = normalizeState(savedState);
+    const needsJoinMonthMigration = Array.isArray(savedState?.members) && savedState.members.some(
+      (member) => !/^\d{4}-\d{2}$/.test(member.joinedMonth || ""),
+    );
+    if (needsJoinMonthMigration) localStorage.setItem(storageKey, JSON.stringify(normalizedState));
+    return normalizedState;
   } catch {
     return structuredClone(initialState);
   }
@@ -111,6 +117,8 @@ function normalizeState(savedState) {
     name: member.name || "名前未設定",
     faculty: member.faculty || "",
     grade: Math.max(Number(member.grade) || 1, 1),
+    // 既存データは今回の月から自動繰越を始め、過去の請求を重複計上しない。
+    joinedMonth: /^\d{4}-\d{2}$/.test(member.joinedMonth || "") ? member.joinedMonth : currentMonth(),
     paused: Boolean(member.paused),
     priorArrears: Number(member.priorArrears) || 0,
     notes: member.notes || "",
@@ -136,6 +144,9 @@ function monthData(month = selectedMonth) {
       monthlyFeeEnabled: true,
       attendance: {},
       payments: {},
+      arrearsOverrides: {},
+      pausedMembers: {},
+      pauseOverrides: {},
       events: [],
     };
   }
@@ -143,6 +154,28 @@ function monthData(month = selectedMonth) {
   if (typeof state.months[month].monthlyFeeEnabled !== "boolean") {
     state.months[month].monthlyFeeEnabled = true;
   }
+  if (!state.months[month].arrearsOverrides || typeof state.months[month].arrearsOverrides !== "object") {
+    state.months[month].arrearsOverrides = {};
+  }
+  if (!state.months[month].pausedMembers || typeof state.months[month].pausedMembers !== "object") {
+    state.months[month].pausedMembers = {};
+  }
+  if (!state.months[month].pauseOverrides || typeof state.months[month].pauseOverrides !== "object") {
+    state.months[month].pauseOverrides = {};
+  }
+  state.members.forEach((member) => {
+    if (Object.hasOwn(state.months[month].pauseOverrides, member.id)) {
+      state.months[month].pausedMembers[member.id] = Boolean(state.months[month].pauseOverrides[member.id]);
+    } else if (!Object.hasOwn(state.months[month].pausedMembers, member.id)) {
+      const previousOverrideMonths = Object.keys(state.months)
+        .filter((candidate) => candidate < month && Object.hasOwn(state.months[candidate]?.pauseOverrides || {}, member.id))
+        .sort();
+      const latestOverride = previousOverrideMonths.at(-1);
+      state.months[month].pausedMembers[member.id] = latestOverride
+        ? Boolean(state.months[latestOverride].pauseOverrides[member.id])
+        : Boolean(member.paused);
+    }
+  });
 
   if (!Array.isArray(state.months[month].lessons)) {
     state.months[month].lessons = defaultLessons();
@@ -185,22 +218,54 @@ function setMemberAttendance(memberId, lessonIndex, value) {
   data.attendance[memberId] = attendance;
 }
 
-function memberLedger(member) {
-  const data = monthData();
+function previousMonth(month) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const date = new Date(year, monthNumber - 2, 1);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function propagatePauseState(member, value, fromMonth = selectedMonth) {
+  let inheritedValue = value;
+  const laterMonths = Object.keys(state.months).filter((month) => month > fromMonth).sort();
+  laterMonths.forEach((month) => {
+    const data = state.months[month];
+    data.pausedMembers ||= {};
+    data.pauseOverrides ||= {};
+    if (Object.hasOwn(data.pauseOverrides, member.id)) {
+      inheritedValue = Boolean(data.pauseOverrides[member.id]);
+    } else {
+      data.pausedMembers[member.id] = inheritedValue;
+    }
+  });
+}
+
+function memberLedger(member, month = selectedMonth) {
+  const data = monthData(month);
   const attendance = memberAttendance(member.id, data);
   const lessons = attendance.filter(Boolean).length;
   const payments = data.payments[member.id] || [];
-  const priorArrears = Number(member.priorArrears) || 0;
-  // 休部状態は月を切り替えても会員情報に残る。休部中でも稽古に参加した月は部費が発生する。
+  const isPaused = Boolean(data.pausedMembers[member.id]);
+  let priorArrears;
+  if (Object.hasOwn(data.arrearsOverrides, member.id)) {
+    priorArrears = Number(data.arrearsOverrides[member.id]) || 0;
+  } else {
+    const prevMonth = previousMonth(month);
+    const joinedMonth = member.joinedMonth || month;
+    priorArrears = prevMonth >= joinedMonth
+      ? memberLedger(member, prevMonth).due
+      : Number(member.priorArrears) || 0;
+  }
+  // 休部状態は月ごとに記録し、休部中でも稽古に参加した月は部費が発生する。
   const monthlyCharge = !data.monthlyFeeEnabled
     ? 0
-    : member.paused && lessons === 0
+    : isPaused && lessons === 0
       ? 0
       : fixedMonthlyFee;
   const lessonCharge = data.lessons.reduce((sum, lesson, index) => {
     return sum + (attendance[index] ? Math.max(Number(lesson.fee) || 0, 0) : 0);
   }, 0);
   const charged = monthlyCharge + lessonCharge;
+  const billed = priorArrears + charged;
   const paid = payments.reduce((sum, payment) => sum + Number(payment.amount), 0);
   const paidCash = payments
     .filter((payment) => payment.method === "現金")
@@ -215,14 +280,16 @@ function memberLedger(member) {
     attendance,
     payments,
     priorArrears,
+    isPaused,
     monthlyCharge,
     lessonCharge,
     charged,
+    billed,
     paid,
     paidCash,
     paidTransfer,
     paymentLog,
-    due: priorArrears + charged - paid,
+    due: billed - paid,
   };
 }
 
@@ -247,7 +314,7 @@ function render() {
   const ledgers = state.members.map((member) => ({ member, ledger: memberLedger(member) }));
   const totals = ledgers.reduce(
     (sum, item) => {
-      sum.charged += item.ledger.charged;
+      sum.charged += item.ledger.billed;
       sum.paid += item.ledger.paid;
       sum.due += item.ledger.due;
       sum.lessons += item.ledger.lessons;
@@ -273,10 +340,10 @@ function render() {
         <small>部費 ${yen.format(ledger.monthlyCharge)} / 稽古 ${yen.format(ledger.lessonCharge)}</small>
       </div>
       <input class="grade-input" data-action="grade" data-id="${member.id}" type="number" min="1" step="1" value="${member.grade}" aria-label="${escapeHtml(member.name)}さんの学年" />
-      <span class="status ${member.paused ? "paused" : ""}">${member.paused ? "休部中" : "在籍"}</span>
+      <span class="status ${ledger.isPaused ? "paused" : ""}">${ledger.isPaused ? "休部中" : "在籍"}</span>
       <span>${ledger.lessons}回</span>
       <span class="amount ${amountClass(ledger.priorArrears)}">${yen.format(ledger.priorArrears)}</span>
-      <span class="amount">${yen.format(ledger.charged)}</span>
+      <span class="amount">${yen.format(ledger.billed)}</span>
       <span class="amount">${yen.format(ledger.paid)}</span>
       <span class="amount ${amountClass(ledger.due)}">${yen.format(ledger.due)}</span>
       <span class="notes-preview">${escapeHtml(member.notes || "")}</span>
@@ -396,7 +463,8 @@ els.addMemberForm.addEventListener("submit", (event) => {
   const faculty = els.memberFaculty.value.trim();
   const grade = Math.max(Number(els.memberGrade.value) || 1, 1);
   if (!name) return;
-  state.members.push({ id: crypto.randomUUID(), name, faculty, grade, paused: false, priorArrears: 0, notes: "" });
+  state.members.push({ id: crypto.randomUUID(), name, faculty, grade, joinedMonth: selectedMonth, paused: false, priorArrears: 0, notes: "" });
+  monthData().pausedMembers[state.members[state.members.length - 1].id] = false;
   addEvent(`${name}さんを追加`);
   els.memberName.value = "";
   els.memberFaculty.value = "";
@@ -455,8 +523,11 @@ els.members.addEventListener("click", (event) => {
   }
 
   if (action === "toggle-pause") {
-    member.paused = !member.paused;
-    addEvent(`${member.name}さんを${member.paused ? "休部中" : "在籍"}に変更`);
+    const nextPaused = !memberLedger(member).isPaused;
+    data.pauseOverrides[member.id] = nextPaused;
+    data.pausedMembers[member.id] = nextPaused;
+    propagatePauseState(member, nextPaused);
+    addEvent(`${member.name}さんを${nextPaused ? "休部中" : "在籍"}に変更`);
   }
 
   if (action === "pay") {
@@ -471,7 +542,7 @@ els.members.addEventListener("click", (event) => {
   if (action === "arrears") {
     arrearsMemberId = member.id;
     els.arrearsMember.textContent = `${member.name}さん`;
-    els.arrearsAmount.value = Math.max(Number(member.priorArrears) || 0, 0);
+    els.arrearsAmount.value = memberLedger(member).priorArrears;
     els.arrearsDialog.showModal();
     return;
   }
@@ -540,11 +611,12 @@ els.cancelPayment.addEventListener("click", () => {
 els.arrearsForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const member = state.members.find((item) => item.id === arrearsMemberId);
-  const amount = Math.max(Number(els.arrearsAmount.value) || 0, 0);
+  const parsedAmount = Number(els.arrearsAmount.value);
+  const amount = Number.isFinite(parsedAmount) ? parsedAmount : 0;
 
   if (!member) return;
 
-  member.priorArrears = amount;
+  monthData().arrearsOverrides[member.id] = amount;
   addEvent(`${member.name}さんの先月までの滞納を${yen.format(amount)}に設定`);
   saveState();
   els.arrearsDialog.close();
@@ -635,12 +707,24 @@ function importMembersFromPaste(mode) {
         if (importedMember.faculty) existing.faculty = importedMember.faculty;
         existing.grade = importedMember.grade;
         existing.priorArrears = importedMember.priorArrears;
+        monthData().arrearsOverrides[existing.id] = importedMember.priorArrears;
+        if (importedMember.statusProvided) {
+          data.pauseOverrides[existing.id] = importedMember.paused;
+          monthData().pausedMembers[existing.id] = importedMember.paused;
+          propagatePauseState(existing, importedMember.paused);
+        }
         existing.notes = importedMember.notes || existing.notes;
         updated += 1;
         return;
       }
 
-      state.members.push(importedMember);
+      const { statusProvided, ...newMember } = importedMember;
+      state.members.push(newMember);
+      monthData().pausedMembers[newMember.id] = newMember.paused;
+      if (statusProvided) {
+        monthData().pauseOverrides[newMember.id] = newMember.paused;
+        propagatePauseState(newMember, newMember.paused);
+      }
       added += 1;
     });
     addEvent(`Excel貼り付けから${added}人追加、${updated}人更新`);
@@ -721,7 +805,9 @@ function importedRowToMember(row, indexes) {
     name,
     faculty: indexes.faculty >= 0 ? String(row[indexes.faculty] || "").trim() : "",
     grade: parseGrade(row[indexes.grade]),
+    joinedMonth: selectedMonth,
     paused: row[indexes.status] ? row[indexes.status].includes("休") : false,
+    statusProvided: indexes.status >= 0,
     priorArrears: parseAmount(row[indexes.arrears]),
     notes: row[indexes.notes] || "",
   };
@@ -803,7 +889,7 @@ els.exportCsv.addEventListener("click", () => {
       "先月末",
       lesson1Title,
       lesson2Title,
-      "部費",
+      "請求",
       "納金",
       "今月末",
       "備考",
@@ -818,7 +904,7 @@ els.exportCsv.addEventListener("click", () => {
         ledger.priorArrears,
         ledger.attendance[0] ? 1 : 0,
         ledger.attendance[1] ? 1 : 0,
-        ledger.charged,
+        ledger.billed,
         ledger.paid,
         ledger.due,
         member.notes || "",
@@ -847,11 +933,11 @@ els.exportExcel.addEventListener("click", () => {
       const rowNumber = tableStartRow + index + 1;
       const monthlyFeeFormula = !data.monthlyFeeEnabled
         ? "0"
-        : member.paused
+        : ledger.isPaused
           ? `IF(OR(F${rowNumber}=1,G${rowNumber}=1),2000,0)`
           : "2000";
       const chargeFormula = `=${monthlyFeeFormula}+IF(F${rowNumber}=1,$F$3,0)+IF(G${rowNumber}=1,$G$3,0)`;
-      const balanceFormula = `=E${rowNumber}+H${rowNumber}-I${rowNumber}`;
+      const balanceFormula = `=H${rowNumber}-I${rowNumber}`;
       const debtClass = ledger.due > 0 ? "arrears" : "no-arrears";
 
       return `
@@ -863,7 +949,7 @@ els.exportExcel.addEventListener("click", () => {
           <td class="${ledger.priorArrears > 0 ? "arrears" : "no-arrears"}">${ledger.priorArrears}</td>
           <td>${ledger.attendance[0] ? 1 : 0}</td>
           <td>${ledger.attendance[1] ? 1 : 0}</td>
-          <td class="${excelAmountClass(ledger.charged)}">${chargeFormula}</td>
+          <td class="${excelAmountClass(ledger.billed)}">=E${rowNumber}+${chargeFormula.slice(1)}</td>
           <td class="${excelAmountClass(ledger.paid)}">${ledger.paid}</td>
           <td class="${debtClass}">${balanceFormula}</td>
           <td class="notes">${escapeHtml(member.notes || "")}</td>
@@ -915,7 +1001,7 @@ els.exportExcel.addEventListener("click", () => {
             <th>先月末</th>
             <th>${escapeHtml(lesson1Title)}</th>
             <th>${escapeHtml(lesson2Title)}</th>
-            <th>部費</th>
+            <th>請求</th>
             <th>納金</th>
             <th>今月末</th>
             <th>備考</th>
