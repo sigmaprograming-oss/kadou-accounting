@@ -963,8 +963,15 @@ els.exportExcel.addEventListener("click", () => {
       <head>
         <meta charset="UTF-8" />
         <style>
-          table { border-collapse: collapse; font-family: sans-serif; }
+          table { border-collapse: collapse; table-layout: fixed; width: 1250px; font-family: sans-serif; }
           td, th { border: 1px solid #000; padding: 4px 6px; mso-number-format: "#,##0"; }
+          col.index { width: 55px; }
+          col.faculty { width: 115px; }
+          col.grade { width: 65px; }
+          col.name { width: 125px; }
+          col.money { width: 120px; }
+          col.attendance { width: 85px; }
+          col.notes { width: 240px; }
           .title { font-size: 16px; font-weight: bold; border: 0; }
           .meta { border: 0; color: #555; }
           th { background: #f2f2f2; font-weight: bold; }
@@ -979,6 +986,19 @@ els.exportExcel.addEventListener("click", () => {
       </head>
       <body>
         <table>
+          <colgroup>
+            <col class="index" width="55" />
+            <col class="faculty" width="115" />
+            <col class="grade" width="65" />
+            <col class="name" width="125" />
+            <col class="money" width="120" />
+            <col class="attendance" width="85" />
+            <col class="attendance" width="85" />
+            <col class="money" width="120" />
+            <col class="money" width="120" />
+            <col class="money" width="120" />
+            <col class="notes" width="240" />
+          </colgroup>
           <tr><td class="title" colspan="11">${escapeHtml(title)}</td></tr>
           <tr>
             <td class="meta" colspan="5">稽古日程・金額</td>
