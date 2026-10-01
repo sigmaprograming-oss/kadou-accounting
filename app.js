@@ -25,6 +25,7 @@ const els = {
   prevMonth: document.querySelector("#prevMonth"),
   nextMonth: document.querySelector("#nextMonth"),
   monthlyFee: document.querySelector("#monthlyFee"),
+  skipMonthlyFee: document.querySelector("#skipMonthlyFee"),
   lesson1Date: document.querySelector("#lesson1Date"),
   lesson1Fee: document.querySelector("#lesson1Fee"),
   lesson2Date: document.querySelector("#lesson2Date"),
@@ -132,10 +133,15 @@ function monthData(month = selectedMonth) {
   if (!state.months[month]) {
     state.months[month] = {
       lessons: defaultLessons(),
+      monthlyFeeEnabled: true,
       attendance: {},
       payments: {},
       events: [],
     };
+  }
+
+  if (typeof state.months[month].monthlyFeeEnabled !== "boolean") {
+    state.months[month].monthlyFeeEnabled = true;
   }
 
   if (!Array.isArray(state.months[month].lessons)) {
@@ -186,7 +192,11 @@ function memberLedger(member) {
   const payments = data.payments[member.id] || [];
   const priorArrears = Number(member.priorArrears) || 0;
   // 休部状態は月を切り替えても会員情報に残る。休部中でも稽古に参加した月は部費が発生する。
-  const monthlyCharge = member.paused && lessons === 0 ? 0 : fixedMonthlyFee;
+  const monthlyCharge = !data.monthlyFeeEnabled
+    ? 0
+    : member.paused && lessons === 0
+      ? 0
+      : fixedMonthlyFee;
   const lessonCharge = data.lessons.reduce((sum, lesson, index) => {
     return sum + (attendance[index] ? Math.max(Number(lesson.fee) || 0, 0) : 0);
   }, 0);
@@ -228,6 +238,7 @@ function render() {
   const data = monthData();
   els.targetMonth.value = selectedMonth;
   els.monthlyFee.value = fixedMonthlyFee;
+  els.skipMonthlyFee.checked = !data.monthlyFeeEnabled;
   els.lesson1Date.value = data.lessons[0].date;
   els.lesson1Fee.value = data.lessons[0].fee;
   els.lesson2Date.value = data.lessons[1].date;
@@ -340,6 +351,14 @@ els.prevMonth.addEventListener("click", () => changeMonth(-1));
 els.nextMonth.addEventListener("click", () => changeMonth(1));
 els.targetMonth.addEventListener("change", (event) => {
   selectedMonth = event.target.value || currentMonth();
+  render();
+});
+
+els.skipMonthlyFee.addEventListener("change", () => {
+  const data = monthData();
+  data.monthlyFeeEnabled = !els.skipMonthlyFee.checked;
+  addEvent(data.monthlyFeeEnabled ? "今月の部費を有効にしました" : "今月は全員の部費を免除しました");
+  saveState();
   render();
 });
 
@@ -826,9 +845,11 @@ els.exportExcel.addEventListener("click", () => {
     .map((member, index) => {
       const ledger = memberLedger(member);
       const rowNumber = tableStartRow + index + 1;
-      const monthlyFeeFormula = member.paused
-        ? `IF(OR(F${rowNumber}=1,G${rowNumber}=1),2000,0)`
-        : "2000";
+      const monthlyFeeFormula = !data.monthlyFeeEnabled
+        ? "0"
+        : member.paused
+          ? `IF(OR(F${rowNumber}=1,G${rowNumber}=1),2000,0)`
+          : "2000";
       const chargeFormula = `=${monthlyFeeFormula}+IF(F${rowNumber}=1,$F$3,0)+IF(G${rowNumber}=1,$G$3,0)`;
       const balanceFormula = `=E${rowNumber}+H${rowNumber}-I${rowNumber}`;
       const debtClass = ledger.due > 0 ? "arrears" : "no-arrears";

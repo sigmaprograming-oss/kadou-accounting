@@ -177,6 +177,24 @@ textarea {
   background: #f8faf9;
 }
 
+.fee-exemption {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.fee-exemption input {
+  width: 16px;
+  min-height: 16px;
+  margin: 0;
+}
+
+.fee-exemption label {
+  margin: 0;
+  cursor: pointer;
+}
+
 .lesson-setting > div {
   display: grid;
   grid-template-columns: minmax(130px, 1fr) minmax(100px, 0.75fr);
