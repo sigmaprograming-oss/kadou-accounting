@@ -139,15 +139,15 @@ textarea {
 }
 
 .metric.alert strong.due {
-  color: var(--blue);
-}
-
-.metric.alert strong.balance-negative {
   color: var(--red);
 }
 
+.metric.alert strong.balance-negative {
+  color: var(--blue);
+}
+
 .metric.alert strong.balance-zero {
-  color: var(--ink);
+  color: var(--blue);
 }
 
 .settings-band {
@@ -314,15 +314,23 @@ menu button {
 }
 
 .due {
-  color: var(--blue);
-}
-
-.balance-negative {
   color: var(--red);
 }
 
+.balance-negative {
+  color: var(--blue);
+}
+
 .balance-zero {
-  color: var(--ink);
+  color: var(--blue);
+}
+
+.member-name.has-arrears strong {
+  color: var(--red);
+}
+
+.member-name.no-arrears strong {
+  color: var(--blue);
 }
 
 .settled {

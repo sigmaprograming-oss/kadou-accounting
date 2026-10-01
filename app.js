@@ -256,7 +256,7 @@ function render() {
     const row = document.createElement("article");
     row.className = "member-row";
     row.innerHTML = `
-      <div class="member-name">
+      <div class="member-name ${ledger.due > 0 ? "has-arrears" : "no-arrears"}">
         <strong>${escapeHtml(member.name)}</strong>
         <small>${escapeHtml(member.faculty || "学部未設定")}</small>
         <small>部費 ${yen.format(ledger.monthlyCharge)} / 稽古 ${yen.format(ledger.lessonCharge)}</small>
@@ -301,7 +301,6 @@ function render() {
 
 function amountClass(value) {
   if (value > 0) return "due";
-  if (value < 0) return "balance-negative";
   return "balance-zero";
 }
 
@@ -774,53 +773,35 @@ els.settleSuggested.addEventListener("click", () => {
 
 els.exportCsv.addEventListener("click", () => {
   const data = monthData();
+  const lesson1Title = lessonExportLabel(data.lessons[0], 1);
+  const lesson2Title = lessonExportLabel(data.lessons[1], 2);
   const rows = [
     [
-      "月",
       "No.",
-      "名前",
       "学部",
       "学年",
-      "状態",
+      "名前",
       "先月末",
-      "稽古1日程",
-      "稽古1金額",
-      "稽古1参加",
-      "稽古2日程",
-      "稽古2金額",
-      "稽古2参加",
-      "稽古回数",
-      "今月請求",
-      "現金",
-      "振込",
+      lesson1Title,
+      lesson2Title,
+      "部費",
       "納金",
       "今月末",
-      "入金記録",
       "備考",
     ],
     ...state.members.map((member, index) => {
       const ledger = memberLedger(member);
       return [
-        selectedMonth,
         index + 1,
-        member.name,
         member.faculty || "",
         member.grade,
-        member.paused ? "休部中" : "在籍",
+        member.name,
         ledger.priorArrears,
-        data.lessons[0].date,
-        data.lessons[0].fee,
         ledger.attendance[0] ? 1 : 0,
-        data.lessons[1].date,
-        data.lessons[1].fee,
         ledger.attendance[1] ? 1 : 0,
-        ledger.lessons,
         ledger.charged,
-        ledger.paidCash,
-        ledger.paidTransfer,
         ledger.paid,
         ledger.due,
-        ledger.paymentLog,
         member.notes || "",
       ];
     }),
@@ -845,26 +826,26 @@ els.exportExcel.addEventListener("click", () => {
     .map((member, index) => {
       const ledger = memberLedger(member);
       const rowNumber = tableStartRow + index + 1;
-      const chargeFormula = `=IF(D${rowNumber}="休部中",IF(OR(F${rowNumber}=1,G${rowNumber}=1),2000,0),2000)+IF(F${rowNumber}=1,$F$3,0)+IF(G${rowNumber}=1,$G$3,0)`;
-      const paidFormula = `=I${rowNumber}+J${rowNumber}`;
-      const balanceFormula = `=E${rowNumber}+H${rowNumber}-K${rowNumber}`;
+      const monthlyFeeFormula = member.paused
+        ? `IF(OR(F${rowNumber}=1,G${rowNumber}=1),2000,0)`
+        : "2000";
+      const chargeFormula = `=${monthlyFeeFormula}+IF(F${rowNumber}=1,$F$3,0)+IF(G${rowNumber}=1,$G$3,0)`;
+      const balanceFormula = `=E${rowNumber}+H${rowNumber}-I${rowNumber}`;
+      const debtClass = ledger.due > 0 ? "arrears" : "no-arrears";
 
       return `
         <tr>
           <td class="index">${index + 1}</td>
+          <td>${escapeHtml(member.faculty || "")}</td>
           <td>${member.grade}年</td>
-          <td>${escapeHtml(member.name)}</td>
-          <td>${member.paused ? "休部中" : "在籍"}</td>
-          <td class="${excelAmountClass(ledger.priorArrears)}">${ledger.priorArrears}</td>
+          <td class="${debtClass}">${escapeHtml(member.name)}</td>
+          <td class="${ledger.priorArrears > 0 ? "arrears" : "no-arrears"}">${ledger.priorArrears}</td>
           <td>${ledger.attendance[0] ? 1 : 0}</td>
           <td>${ledger.attendance[1] ? 1 : 0}</td>
           <td class="${excelAmountClass(ledger.charged)}">${chargeFormula}</td>
-          <td class="${excelAmountClass(ledger.paidCash)}">${ledger.paidCash}</td>
-          <td class="${excelAmountClass(ledger.paidTransfer)}">${ledger.paidTransfer}</td>
-          <td class="${excelAmountClass(ledger.paid)}">${paidFormula}</td>
-          <td class="${excelAmountClass(ledger.due)}">${balanceFormula}</td>
+          <td class="${excelAmountClass(ledger.paid)}">${ledger.paid}</td>
+          <td class="${debtClass}">${balanceFormula}</td>
           <td class="notes">${escapeHtml(member.notes || "")}</td>
-          <td>${escapeHtml(member.faculty || "")}</td>
         </tr>
       `;
     })
@@ -884,40 +865,39 @@ els.exportExcel.addEventListener("click", () => {
           .amount-plus { color: #0070c0; font-weight: bold; }
           .amount-minus { color: #ff0000; font-weight: bold; }
           .amount-zero { color: #000000; }
+          .arrears { color: #ff0000; font-weight: bold; }
+          .no-arrears { color: #0070c0; font-weight: bold; }
           .notes { mso-number-format: "\\@"; }
         </style>
       </head>
       <body>
         <table>
-          <tr><td class="title" colspan="14">${escapeHtml(title)}</td></tr>
+          <tr><td class="title" colspan="11">${escapeHtml(title)}</td></tr>
           <tr>
             <td class="meta" colspan="5">稽古日程・金額</td>
             <td>${escapeHtml(data.lessons[0].date || "")}</td>
             <td>${escapeHtml(data.lessons[1].date || "")}</td>
-            <td class="meta" colspan="7"></td>
+            <td class="meta" colspan="4"></td>
           </tr>
           <tr>
             <td class="meta" colspan="5"></td>
             <td>${data.lessons[0].fee}</td>
             <td>${data.lessons[1].fee}</td>
-            <td class="meta" colspan="7"></td>
+            <td class="meta" colspan="4"></td>
           </tr>
-          <tr><td class="meta" colspan="14"></td></tr>
+          <tr><td class="meta" colspan="11"></td></tr>
           <tr>
             <th>No.</th>
+            <th>学部</th>
             <th>学年</th>
             <th>名前</th>
-            <th>状態</th>
             <th>先月末</th>
             <th>${escapeHtml(lesson1Title)}</th>
             <th>${escapeHtml(lesson2Title)}</th>
             <th>部費</th>
-            <th>現金</th>
-            <th>振込</th>
             <th>納金</th>
             <th>今月末</th>
             <th>備考</th>
-            <th>学部</th>
           </tr>
           ${rowsHtml}
         </table>
@@ -948,8 +928,8 @@ function downloadFile(filename, content, type) {
 
 function lessonExportLabel(lesson, number) {
   if (!lesson.date) return `稽古${number}`;
-  const [, month, day] = lesson.date.split("-");
-  return `${Number(month)}日/${Number(day)}日`;
+  const [, , day] = lesson.date.split("-");
+  return `${Number(day)}日`;
 }
 
 function excelAmountClass(value) {
