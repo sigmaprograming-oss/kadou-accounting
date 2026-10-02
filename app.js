@@ -350,14 +350,14 @@ function render() {
         <small>${escapeHtml(member.faculty || "学部未設定")}</small>
         <small>部費 ${yen.format(ledger.monthlyCharge)} / 稽古 ${yen.format(ledger.lessonCharge)}</small>
       </div>
-      <input class="grade-input" data-action="grade" data-id="${member.id}" type="number" min="1" step="1" value="${member.grade}" aria-label="${escapeHtml(member.name)}さんの学年" />
-      <span class="status ${ledger.isPaused ? "paused" : ""}">${ledger.isPaused ? "休部中" : "在籍"}</span>
-      <span>${ledger.lessons}回</span>
-      <span class="amount ${amountClass(ledger.priorArrears)}">${yen.format(ledger.priorArrears)}</span>
-      <span class="amount">${yen.format(ledger.billed)}</span>
-      <span class="amount">${yen.format(ledger.paid)}</span>
-      <span class="amount ${amountClass(ledger.due)}">${yen.format(ledger.due)}</span>
-      <span class="notes-preview">${escapeHtml(member.notes || "")}</span>
+      <label class="grade-field" data-label="学年"><input class="grade-input" data-action="grade" data-id="${member.id}" type="number" min="1" step="1" value="${member.grade}" aria-label="${escapeHtml(member.name)}さんの学年" /></label>
+      <span class="status ${ledger.isPaused ? "paused" : ""}" data-label="状態">${ledger.isPaused ? "休部中" : "在籍"}</span>
+      <span data-label="稽古">${ledger.lessons}回</span>
+      <span class="amount ${amountClass(ledger.priorArrears)}" data-label="持越">${yen.format(ledger.priorArrears)}</span>
+      <span class="amount" data-label="請求">${yen.format(ledger.billed)}</span>
+      <span class="amount" data-label="入金">${yen.format(ledger.paid)}</span>
+      <span class="amount ${amountClass(ledger.due)}" data-label="現在滞納">${yen.format(ledger.due)}</span>
+      <span class="notes-preview" data-label="備考">${escapeHtml(member.notes || "")}</span>
       <div class="row-actions">
         <button class="move" data-action="move-up" data-id="${member.id}" type="button" aria-label="${escapeHtml(member.name)}さんを上へ" ${index === 0 ? "disabled" : ""}>↑</button>
         <button class="move" data-action="move-down" data-id="${member.id}" type="button" aria-label="${escapeHtml(member.name)}さんを下へ" ${index === state.members.length - 1 ? "disabled" : ""}>↓</button>
