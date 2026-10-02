@@ -582,7 +582,7 @@ els.paymentForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const member = state.members.find((item) => item.id === payingMemberId);
   const amount = Math.max(Number(els.paymentAmount.value) || 0, 0);
-  const method = new FormData(els.paymentForm).get("paymentMethod");
+  const method = els.paymentForm.querySelector('input[name="paymentMethod"]:checked')?.value || "振込";
 
   if (!member || amount <= 0) return;
 
@@ -679,7 +679,7 @@ function updateImportPreview() {
 
   const sample = parsed.members
     .slice(0, 5)
-    .map((member) => `${member.name}(${member.faculty || "学部未設定"}・${member.grade}年)`)
+    .map((member) => `${member.name}(${member.faculty || "学部未設定"}・${member.grade}年${member.paidProvided ? `・納金${yen.format(member.paidAmount)}` : ""})`)
     .join("、");
   els.importPreview.textContent = parsed.members.length
     ? `${parsed.members.length}人を読み取りました。${sample}${parsed.members.length > 5 ? "、..." : ""}`
@@ -693,10 +693,12 @@ function importMembersFromPaste(mode) {
     return;
   }
 
+  const data = monthData();
   if (mode === "replace") {
     const ok = confirm(`${parsed.members.length}人で部員リストを入れ替えますか？`);
     if (!ok) return;
     state.members = parsed.members;
+    parsed.members.forEach((member) => applyImportedPayment(member, data));
     addEvent(`Excel貼り付けから${parsed.members.length}人で部員リストを入れ替え`);
   } else {
     let added = 0;
@@ -707,10 +709,11 @@ function importMembersFromPaste(mode) {
         if (importedMember.faculty) existing.faculty = importedMember.faculty;
         existing.grade = importedMember.grade;
         existing.priorArrears = importedMember.priorArrears;
-        monthData().arrearsOverrides[existing.id] = importedMember.priorArrears;
+        data.arrearsOverrides[existing.id] = importedMember.priorArrears;
+        applyImportedPayment({ ...importedMember, id: existing.id }, data);
         if (importedMember.statusProvided) {
           data.pauseOverrides[existing.id] = importedMember.paused;
-          monthData().pausedMembers[existing.id] = importedMember.paused;
+          data.pausedMembers[existing.id] = importedMember.paused;
           propagatePauseState(existing, importedMember.paused);
         }
         existing.notes = importedMember.notes || existing.notes;
@@ -718,11 +721,12 @@ function importMembersFromPaste(mode) {
         return;
       }
 
-      const { statusProvided, ...newMember } = importedMember;
+      const { statusProvided, paidProvided, paidAmount, ...newMember } = importedMember;
       state.members.push(newMember);
-      monthData().pausedMembers[newMember.id] = newMember.paused;
+      data.pausedMembers[newMember.id] = newMember.paused;
+      applyImportedPayment(importedMember, data);
       if (statusProvided) {
-        monthData().pauseOverrides[newMember.id] = newMember.paused;
+        data.pauseOverrides[newMember.id] = newMember.paused;
         propagatePauseState(newMember, newMember.paused);
       }
       added += 1;
@@ -733,6 +737,14 @@ function importMembersFromPaste(mode) {
   saveState();
   els.importDialog.close();
   render();
+}
+
+function applyImportedPayment(member, data) {
+  if (!member.paidProvided) return;
+  const amount = Math.max(Number(member.paidAmount) || 0, 0);
+  data.payments[member.id] = amount > 0
+    ? [{ id: crypto.randomUUID(), amount, method: "振込", at: new Date().toISOString() }]
+    : [];
 }
 
 function parseImportedMembers(text) {
@@ -780,6 +792,7 @@ function importColumnIndexes(headers) {
     grade: find("学年", "年", "年次", "学年次"),
     name: find("名前", "部員名"),
     arrears: find("先月末", "先月までの滞納", "持越"),
+    paid: find("納金", "入金", "入金額", "納入額", "支払額"),
     status: find("状態"),
     notes: find("備考"),
   };
@@ -791,6 +804,7 @@ function fallbackColumnIndexes() {
     grade: 2,
     name: 3,
     arrears: 4,
+    paid: 8,
     status: -1,
     notes: 10,
   };
@@ -809,6 +823,8 @@ function importedRowToMember(row, indexes) {
     paused: row[indexes.status] ? row[indexes.status].includes("休") : false,
     statusProvided: indexes.status >= 0,
     priorArrears: parseAmount(row[indexes.arrears]),
+    paidProvided: indexes.paid >= 0,
+    paidAmount: indexes.paid >= 0 ? parseAmount(row[indexes.paid]) : 0,
     notes: row[indexes.notes] || "",
   };
 }
@@ -876,7 +892,7 @@ els.settleSuggested.addEventListener("click", () => {
   render();
 });
 
-els.exportCsv.addEventListener("click", () => {
+function exportCsv() {
   const data = monthData();
   const lesson1Title = lessonExportLabel(data.lessons[0], 1);
   const lesson2Title = lessonExportLabel(data.lessons[1], 2);
@@ -917,11 +933,23 @@ els.exportCsv.addEventListener("click", () => {
   const link = document.createElement("a");
   link.href = url;
   link.download = `華道部会計_${selectedMonth}.csv`;
+  document.body.append(link);
   link.click();
-  URL.revokeObjectURL(url);
-});
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+els.exportCsv.addEventListener("click", exportCsv);
 
 els.exportExcel.addEventListener("click", () => {
+  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+    || (navigator.maxTouchPoints > 1 && window.matchMedia("(max-width: 900px)").matches);
+  if (isMobile) {
+    exportCsv();
+    showSaveStatus("スマホ用のExcel互換CSVを出力しました", true);
+    return;
+  }
+
   const data = monthData();
   const tableStartRow = 5;
   const title = `${selectedMonth}分`;
@@ -1049,8 +1077,10 @@ function downloadFile(filename, content, type) {
   const link = document.createElement("a");
   link.href = url;
   link.download = filename;
+  document.body.append(link);
   link.click();
-  URL.revokeObjectURL(url);
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 function lessonExportLabel(lesson, number) {
