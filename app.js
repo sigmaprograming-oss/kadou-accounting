@@ -91,10 +91,27 @@ function loadState() {
   try {
     const savedState = JSON.parse(saved);
     const normalizedState = normalizeState(savedState);
-    const needsJoinMonthMigration = Array.isArray(savedState?.members) && savedState.members.some(
+    let needsMigration = Array.isArray(savedState?.members) && savedState.members.some(
       (member) => !/^\d{4}-\d{2}$/.test(member.joinedMonth || ""),
     );
-    if (needsJoinMonthMigration) localStorage.setItem(storageKey, JSON.stringify(normalizedState));
+    const currentData = normalizedState.months[currentMonth()] ||= {
+      lessons: defaultLessons(),
+      monthlyFeeEnabled: true,
+      attendance: {},
+      payments: {},
+      arrearsOverrides: {},
+      pausedMembers: {},
+      pauseOverrides: {},
+      events: [],
+    };
+    currentData.notes ||= {};
+    normalizedState.members.forEach((member) => {
+      if (!member.notes) return;
+      if (!Object.hasOwn(currentData.notes, member.id)) currentData.notes[member.id] = member.notes;
+      member.notes = "";
+      needsMigration = true;
+    });
+    if (needsMigration) localStorage.setItem(storageKey, JSON.stringify(normalizedState));
     return normalizedState;
   } catch {
     return structuredClone(initialState);
@@ -152,7 +169,7 @@ function monthData(month = selectedMonth) {
       attendance: {},
       payments: {},
       arrearsOverrides: {},
-      balanceAdjustments: {},
+      notes: {},
       pausedMembers: {},
       pauseOverrides: {},
       events: [],
@@ -165,9 +182,11 @@ function monthData(month = selectedMonth) {
   if (!state.months[month].arrearsOverrides || typeof state.months[month].arrearsOverrides !== "object") {
     state.months[month].arrearsOverrides = {};
   }
-  if (!state.months[month].balanceAdjustments || typeof state.months[month].balanceAdjustments !== "object") {
-    state.months[month].balanceAdjustments = {};
+  if (!state.months[month].notes || typeof state.months[month].notes !== "object") {
+    state.months[month].notes = {};
   }
+  // Older imports stored an end-balance adjustment that could cancel this month's fee.
+  delete state.months[month].balanceAdjustments;
   if (!state.months[month].pausedMembers || typeof state.months[month].pausedMembers !== "object") {
     state.months[month].pausedMembers = {};
   }
@@ -276,7 +295,6 @@ function memberLedger(member, month = selectedMonth) {
     return sum + (attendance[index] ? Math.max(Number(lesson.fee) || 0, 0) : 0);
   }, 0);
   const charged = monthlyCharge + lessonCharge;
-  const billed = priorArrears + charged + (Number(data.balanceAdjustments[member.id]) || 0);
   const paid = payments.reduce((sum, payment) => sum + Number(payment.amount), 0);
   const paidCash = payments
     .filter((payment) => payment.method === "現金")
@@ -295,12 +313,11 @@ function memberLedger(member, month = selectedMonth) {
     monthlyCharge,
     lessonCharge,
     charged,
-    billed,
     paid,
     paidCash,
     paidTransfer,
     paymentLog,
-    due: billed - paid,
+    due: priorArrears + charged - paid,
   };
 }
 
@@ -325,7 +342,7 @@ function render() {
   const ledgers = state.members.map((member) => ({ member, ledger: memberLedger(member) }));
   const totals = ledgers.reduce(
     (sum, item) => {
-      sum.charged += item.ledger.billed;
+      sum.charged += item.ledger.charged;
       sum.paid += item.ledger.paid;
       sum.due += item.ledger.due;
       sum.lessons += item.ledger.lessons;
@@ -348,22 +365,22 @@ function render() {
       <div class="member-name ${ledger.due > 0 ? "has-arrears" : "no-arrears"}">
         <strong>${escapeHtml(member.name)}</strong>
         <small>${escapeHtml(member.faculty || "学部未設定")}</small>
-        <small>部費 ${yen.format(ledger.monthlyCharge)} / 稽古 ${yen.format(ledger.lessonCharge)}</small>
+        <small>部費 ${yen.format(ledger.monthlyCharge)} / お花代 ${yen.format(ledger.lessonCharge)}</small>
       </div>
       <label class="grade-field" data-label="学年"><input class="grade-input" data-action="grade" data-id="${member.id}" type="number" min="1" step="1" value="${member.grade}" aria-label="${escapeHtml(member.name)}さんの学年" /></label>
       <span class="status ${ledger.isPaused ? "paused" : ""}" data-label="状態">${ledger.isPaused ? "休部中" : "在籍"}</span>
       <span data-label="稽古">${ledger.lessons}回</span>
       <span class="amount ${amountClass(ledger.priorArrears)}" data-label="持越">${yen.format(ledger.priorArrears)}</span>
-      <span class="amount" data-label="請求">${yen.format(ledger.billed)}</span>
+      <span class="amount" data-label="請求">${yen.format(ledger.charged)}</span>
       <span class="amount" data-label="入金">${yen.format(ledger.paid)}</span>
       <span class="amount ${amountClass(ledger.due)}" data-label="現在滞納">${yen.format(ledger.due)}</span>
-      <span class="notes-preview" data-label="備考">${escapeHtml(member.notes || "")}</span>
+      <span class="notes-preview" data-label="備考">${escapeHtml(data.notes[member.id] || "")}</span>
       <div class="row-actions">
         <button class="move" data-action="move-up" data-id="${member.id}" type="button" aria-label="${escapeHtml(member.name)}さんを上へ" ${index === 0 ? "disabled" : ""}>↑</button>
         <button class="move" data-action="move-down" data-id="${member.id}" type="button" aria-label="${escapeHtml(member.name)}さんを下へ" ${index === state.members.length - 1 ? "disabled" : ""}>↓</button>
         <button class="primary ${ledger.attendance[0] ? "is-active" : ""}" data-action="toggle-lesson" data-lesson="0" data-id="${member.id}" type="button">${lessonButtonLabel(0)}</button>
         <button class="primary ${ledger.attendance[1] ? "is-active" : ""}" data-action="toggle-lesson" data-lesson="1" data-id="${member.id}" type="button">${lessonButtonLabel(1)}</button>
-        <button class="danger" data-action="toggle-pause" data-id="${member.id}" type="button">${member.paused ? "復部" : "休部"}</button>
+        <button class="danger" data-action="toggle-pause" data-id="${member.id}" type="button">${ledger.isPaused ? "復部" : "休部"}</button>
         <button class="payment" data-action="pay" data-id="${member.id}" type="button">入金</button>
         <button data-action="edit-payments" data-id="${member.id}" type="button">入金修正</button>
         <button class="arrears" data-action="arrears" data-id="${member.id}" type="button">滞納設定</button>
@@ -572,7 +589,7 @@ els.members.addEventListener("click", (event) => {
     arrearsMemberId = null;
     payingMemberId = null;
     els.notesMember.textContent = `${member.name}さん`;
-    els.notesText.value = member.notes || "";
+    els.notesText.value = data.notes[member.id] || "";
     els.notesDialog.dataset.memberId = member.id;
     els.notesDialog.showModal();
     return;
@@ -616,7 +633,6 @@ els.paymentForm.addEventListener("submit", (event) => {
     method,
     at,
   });
-  appendMemberNote(member, formatPayment({ amount, method, at }));
   addEvent(`${member.name}さん ${method}で${yen.format(amount)}入金`);
   saveState();
   els.paymentDialog.close();
@@ -720,7 +736,7 @@ els.notesForm.addEventListener("submit", (event) => {
   const member = state.members.find((item) => item.id === els.notesDialog.dataset.memberId);
   if (!member) return;
 
-  member.notes = els.notesText.value.trim();
+  monthData().notes[member.id] = els.notesText.value.trim();
   addEvent(`${member.name}さんの備考を更新`);
   saveState();
   els.notesDialog.close();
@@ -730,10 +746,6 @@ els.notesForm.addEventListener("submit", (event) => {
 els.cancelNotes.addEventListener("click", () => {
   els.notesDialog.close();
 });
-
-function appendMemberNote(member, text) {
-  member.notes = [member.notes, text].filter(Boolean).join("\n");
-}
 
 els.openImport.addEventListener("click", () => {
   els.importText.value = "";
@@ -765,10 +777,10 @@ function updateImportPreview() {
 
   const sample = parsed.members
     .slice(0, 5)
-    .map((member) => `${member.name}(${member.faculty || "学部未設定"}・${member.grade}年${member.paidProvided ? `・納金${yen.format(member.paidAmount)}` : ""}${member.balanceProvided ? `・今月末${yen.format(member.currentBalance)}` : ""})`)
+    .map((member) => `${member.name}(${member.faculty || "学部未設定"}・${member.grade}年・稽古${member.attendance.filter(Boolean).length}回${member.paidProvided ? `・納金${yen.format(member.paidAmount)}` : ""}${member.balanceProvided ? `・Excel今月末${yen.format(member.currentBalance)}` : ""})`)
     .join("、");
   els.importPreview.textContent = parsed.members.length
-    ? `${parsed.members.length}人を読み取りました。${sample}${parsed.members.length > 5 ? "、..." : ""}`
+    ? `${parsed.members.length}人を読み取りました。${sample}${parsed.members.length > 5 ? "、..." : ""}。請求は当月の部費・稽古代、滞納は持越＋請求−納金で計算します。`
     : "名前を読み取れませんでした。名前列を含む表を貼り付けてください。";
 }
 
@@ -783,14 +795,18 @@ function importMembersFromPaste(mode) {
   if (mode === "replace") {
     const ok = confirm(`${parsed.members.length}人で部員リストを入れ替えますか？`);
     if (!ok) return;
-    state.members = parsed.members.map(({ statusProvided, paidProvided, paidAmount, balanceProvided, currentBalance, ...member }) => member);
+    state.members = parsed.members.map(({ statusProvided, paidProvided, paidAmount, balanceProvided, currentBalance, attendanceProvided, attendance, attendanceColumns, notesProvided, ...member }) => {
+      const { notes, ...rosterMember } = member;
+      return rosterMember;
+    });
     parsed.members.forEach((member) => {
       if (member.statusProvided) {
         data.pausedMembers[member.id] = member.paused;
         data.pauseOverrides[member.id] = member.paused;
       }
+      applyImportedAttendance(member, data);
       applyImportedPayment(member, data);
-      applyImportedBalance(member, data);
+      if (member.notesProvided) data.notes[member.id] = member.notes;
     });
     addEvent(`Excel貼り付けから${parsed.members.length}人で部員リストを入れ替え`);
   } else {
@@ -803,23 +819,24 @@ function importMembersFromPaste(mode) {
         existing.grade = importedMember.grade;
         existing.priorArrears = importedMember.priorArrears;
         data.arrearsOverrides[existing.id] = importedMember.priorArrears;
+        applyImportedAttendance({ ...importedMember, id: existing.id }, data);
         applyImportedPayment({ ...importedMember, id: existing.id }, data);
         if (importedMember.statusProvided) {
           data.pauseOverrides[existing.id] = importedMember.paused;
           data.pausedMembers[existing.id] = importedMember.paused;
           propagatePauseState(existing, importedMember.paused);
         }
-        applyImportedBalance({ ...importedMember, id: existing.id }, data);
-        existing.notes = importedMember.notes || existing.notes;
+        if (importedMember.notesProvided) data.notes[existing.id] = importedMember.notes;
         updated += 1;
         return;
       }
 
-      const { statusProvided, paidProvided, paidAmount, balanceProvided, currentBalance, ...newMember } = importedMember;
+      const { statusProvided, paidProvided, paidAmount, balanceProvided, currentBalance, attendanceProvided, attendance, attendanceColumns, notesProvided, notes, ...newMember } = importedMember;
       state.members.push(newMember);
       data.pausedMembers[newMember.id] = newMember.paused;
+      applyImportedAttendance(importedMember, data);
       applyImportedPayment(importedMember, data);
-      applyImportedBalance(importedMember, data);
+      if (notesProvided) data.notes[newMember.id] = notes;
       if (statusProvided) {
         data.pauseOverrides[newMember.id] = newMember.paused;
         propagatePauseState(newMember, newMember.paused);
@@ -842,11 +859,13 @@ function applyImportedPayment(member, data) {
     : [];
 }
 
-function applyImportedBalance(member, data) {
-  if (!member.balanceProvided) return;
-  data.balanceAdjustments[member.id] = 0;
-  const calculatedDue = memberLedger(member).due;
-  data.balanceAdjustments[member.id] = Number(member.currentBalance) - calculatedDue;
+function applyImportedAttendance(member, data) {
+  if (!member.attendanceProvided) return;
+  const attendance = memberAttendance(member.id, data);
+  member.attendance.forEach((isAttending, index) => {
+    if (member.attendanceColumns[index]) attendance[index] = isAttending;
+  });
+  data.attendance[member.id] = attendance;
 }
 
 function parseImportedMembers(text) {
@@ -889,11 +908,18 @@ function normalizeHeader(value) {
 
 function importColumnIndexes(headers) {
   const find = (...names) => headers.findIndex((header) => names.includes(header));
+  const dayColumns = headers
+    .map((header, index) => ({ header, index }))
+    .filter(({ header }) => /^\d{1,2}日$/.test(header));
+  const lesson1 = headers.findIndex((header) => header.startsWith("稽古1"));
+  const lesson2 = headers.findIndex((header) => header.startsWith("稽古2"));
   return {
     faculty: find("学部", "学部名", "所属学部"),
     grade: find("学年", "年", "年次", "学年次"),
     name: find("名前", "部員名"),
     arrears: find("先月末", "先月までの滞納", "持越"),
+    lesson1: lesson1 >= 0 ? lesson1 : (dayColumns[0]?.index ?? -1),
+    lesson2: lesson2 >= 0 ? lesson2 : (dayColumns[1]?.index ?? -1),
     paid: find("納金", "入金", "入金額", "納入額", "支払額"),
     balance: find("今月末", "月末残高", "現在滞納", "滞納残"),
     status: find("状態"),
@@ -907,6 +933,8 @@ function fallbackColumnIndexes() {
     grade: 2,
     name: 3,
     arrears: 4,
+    lesson1: 5,
+    lesson2: 6,
     paid: 8,
     balance: 9,
     status: -1,
@@ -927,12 +955,21 @@ function importedRowToMember(row, indexes) {
     paused: row[indexes.status] ? row[indexes.status].includes("休") : false,
     statusProvided: indexes.status >= 0,
     priorArrears: parseAmount(row[indexes.arrears]),
+    attendanceProvided: indexes.lesson1 >= 0 || indexes.lesson2 >= 0,
+    attendanceColumns: [indexes.lesson1 >= 0, indexes.lesson2 >= 0],
+    attendance: [parseAttendance(row[indexes.lesson1]), parseAttendance(row[indexes.lesson2])],
     paidProvided: indexes.paid >= 0,
     paidAmount: indexes.paid >= 0 ? parseAmount(row[indexes.paid]) : 0,
     balanceProvided: indexes.balance >= 0,
     currentBalance: indexes.balance >= 0 ? parseAmount(row[indexes.balance]) : 0,
     notes: row[indexes.notes] || "",
+    notesProvided: indexes.notes >= 0,
   };
+}
+
+function parseAttendance(value) {
+  const normalized = String(value || "").normalize("NFKC").trim().toLowerCase();
+  return ["1", "○", "◯", "〇", "✓", "✔", "参加", "出席", "true", "yes"].includes(normalized);
 }
 
 function cleanImportedName(value) {
@@ -990,7 +1027,6 @@ els.settleSuggested.addEventListener("click", () => {
       method,
       at,
     });
-    appendMemberNote(member, formatPayment({ amount: ledger.due, method, at }));
     addEvent(`${member.name}さん ${method}で${yen.format(ledger.due)}入金`);
   });
 
@@ -1026,10 +1062,10 @@ function exportCsv() {
         ledger.priorArrears,
         ledger.attendance[0] ? 1 : 0,
         ledger.attendance[1] ? 1 : 0,
-        ledger.billed,
+        ledger.charged,
         ledger.paid,
         ledger.due,
-        member.notes || "",
+        data.notes[member.id] || "",
       ];
     }),
   ];
@@ -1071,8 +1107,7 @@ els.exportExcel.addEventListener("click", () => {
           ? `IF(OR(F${rowNumber}=1,G${rowNumber}=1),2000,0)`
           : "2000";
       const chargeFormula = `=${monthlyFeeFormula}+IF(F${rowNumber}=1,$F$3,0)+IF(G${rowNumber}=1,$G$3,0)`;
-      const balanceFormula = `=H${rowNumber}-I${rowNumber}`;
-      const balanceAdjustment = Number(data.balanceAdjustments[member.id]) || 0;
+      const balanceFormula = `=E${rowNumber}+H${rowNumber}-I${rowNumber}`;
       const debtClass = ledger.due > 0 ? "arrears" : "no-arrears";
 
       return `
@@ -1084,10 +1119,10 @@ els.exportExcel.addEventListener("click", () => {
           <td class="${ledger.priorArrears > 0 ? "arrears" : "no-arrears"}">${ledger.priorArrears}</td>
           <td>${ledger.attendance[0] ? 1 : 0}</td>
           <td>${ledger.attendance[1] ? 1 : 0}</td>
-          <td class="${excelAmountClass(ledger.billed)}">=E${rowNumber}+${chargeFormula.slice(1)}+(${balanceAdjustment})</td>
+          <td class="${excelAmountClass(ledger.charged)}">${chargeFormula}</td>
           <td class="${excelAmountClass(ledger.paid)}">${ledger.paid}</td>
           <td class="${debtClass}">${balanceFormula}</td>
-          <td class="notes">${escapeHtml(member.notes || "")}</td>
+          <td class="notes">${escapeHtml(data.notes[member.id] || "")}</td>
         </tr>
       `;
     })
