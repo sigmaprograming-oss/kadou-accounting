@@ -19,6 +19,7 @@ let state = loadState();
 let selectedMonth = currentMonth();
 let payingMemberId = null;
 let arrearsMemberId = null;
+let editingPaymentsMemberId = null;
 
 const els = {
   targetMonth: document.querySelector("#targetMonth"),
@@ -45,6 +46,12 @@ const els = {
   paymentMember: document.querySelector("#paymentMember"),
   paymentAmount: document.querySelector("#paymentAmount"),
   cancelPayment: document.querySelector("#cancelPayment"),
+  paymentEditDialog: document.querySelector("#paymentEditDialog"),
+  paymentEditForm: document.querySelector("#paymentEditForm"),
+  paymentEditMember: document.querySelector("#paymentEditMember"),
+  paymentEditRows: document.querySelector("#paymentEditRows"),
+  addPaymentRow: document.querySelector("#addPaymentRow"),
+  cancelPaymentEdit: document.querySelector("#cancelPaymentEdit"),
   arrearsDialog: document.querySelector("#arrearsDialog"),
   arrearsForm: document.querySelector("#arrearsForm"),
   arrearsMember: document.querySelector("#arrearsMember"),
@@ -145,6 +152,7 @@ function monthData(month = selectedMonth) {
       attendance: {},
       payments: {},
       arrearsOverrides: {},
+      balanceAdjustments: {},
       pausedMembers: {},
       pauseOverrides: {},
       events: [],
@@ -156,6 +164,9 @@ function monthData(month = selectedMonth) {
   }
   if (!state.months[month].arrearsOverrides || typeof state.months[month].arrearsOverrides !== "object") {
     state.months[month].arrearsOverrides = {};
+  }
+  if (!state.months[month].balanceAdjustments || typeof state.months[month].balanceAdjustments !== "object") {
+    state.months[month].balanceAdjustments = {};
   }
   if (!state.months[month].pausedMembers || typeof state.months[month].pausedMembers !== "object") {
     state.months[month].pausedMembers = {};
@@ -265,7 +276,7 @@ function memberLedger(member, month = selectedMonth) {
     return sum + (attendance[index] ? Math.max(Number(lesson.fee) || 0, 0) : 0);
   }, 0);
   const charged = monthlyCharge + lessonCharge;
-  const billed = priorArrears + charged;
+  const billed = priorArrears + charged + (Number(data.balanceAdjustments[member.id]) || 0);
   const paid = payments.reduce((sum, payment) => sum + Number(payment.amount), 0);
   const paidCash = payments
     .filter((payment) => payment.method === "現金")
@@ -354,6 +365,7 @@ function render() {
         <button class="primary ${ledger.attendance[1] ? "is-active" : ""}" data-action="toggle-lesson" data-lesson="1" data-id="${member.id}" type="button">${lessonButtonLabel(1)}</button>
         <button class="danger" data-action="toggle-pause" data-id="${member.id}" type="button">${member.paused ? "復部" : "休部"}</button>
         <button class="payment" data-action="pay" data-id="${member.id}" type="button">入金</button>
+        <button data-action="edit-payments" data-id="${member.id}" type="button">入金修正</button>
         <button class="arrears" data-action="arrears" data-id="${member.id}" type="button">滞納設定</button>
         <button data-action="notes" data-id="${member.id}" type="button">備考</button>
         <button data-action="remove" data-id="${member.id}" type="button">削除</button>
@@ -539,6 +551,15 @@ els.members.addEventListener("click", (event) => {
     return;
   }
 
+  if (action === "edit-payments") {
+    editingPaymentsMemberId = member.id;
+    els.paymentEditMember.textContent = `${member.name}さん`;
+    els.paymentEditRows.replaceChildren();
+    (data.payments[member.id] || []).forEach((payment) => appendPaymentEditRow(payment));
+    els.paymentEditDialog.showModal();
+    return;
+  }
+
   if (action === "arrears") {
     arrearsMemberId = member.id;
     els.arrearsMember.textContent = `${member.name}さん`;
@@ -606,6 +627,71 @@ els.paymentForm.addEventListener("submit", (event) => {
 els.cancelPayment.addEventListener("click", () => {
   els.paymentDialog.close();
   payingMemberId = null;
+});
+
+function appendPaymentEditRow(payment = {}) {
+  const row = document.createElement("div");
+  row.className = "payment-edit-row";
+  row.dataset.id = payment.id || "";
+  row.dataset.at = payment.at || "";
+
+  const amount = document.createElement("input");
+  amount.type = "number";
+  amount.min = "0";
+  amount.step = "100";
+  amount.value = payment.amount ?? "";
+  amount.placeholder = "金額";
+  amount.setAttribute("aria-label", "入金額");
+
+  const method = document.createElement("select");
+  method.setAttribute("aria-label", "入金方法");
+  ["振込", "現金"].forEach((name) => {
+    const option = document.createElement("option");
+    option.value = name;
+    option.textContent = name;
+    method.append(option);
+  });
+  method.value = payment.method === "現金" ? "現金" : "振込";
+
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.textContent = "削除";
+  remove.addEventListener("click", () => row.remove());
+
+  row.append(amount, method, remove);
+  els.paymentEditRows.append(row);
+}
+
+els.addPaymentRow.addEventListener("click", () => appendPaymentEditRow());
+els.cancelPaymentEdit.addEventListener("click", () => {
+  els.paymentEditDialog.close();
+  editingPaymentsMemberId = null;
+});
+els.paymentEditForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const member = state.members.find((item) => item.id === editingPaymentsMemberId);
+  if (!member) return;
+
+  const data = monthData();
+  const oldTotal = memberLedger(member).paid;
+  data.payments[member.id] = [...els.paymentEditRows.querySelectorAll(".payment-edit-row")]
+    .map((row) => {
+      const amount = Math.max(Number(row.querySelector('input[type="number"]').value) || 0, 0);
+      if (!amount) return null;
+      return {
+        id: row.dataset.id || crypto.randomUUID(),
+        amount,
+        method: row.querySelector("select").value,
+        at: row.dataset.at || new Date().toISOString(),
+      };
+    })
+    .filter(Boolean);
+  const newTotal = memberLedger(member).paid;
+  addEvent(`${member.name}さんの入金額を${yen.format(oldTotal)}から${yen.format(newTotal)}に修正`);
+  saveState();
+  els.paymentEditDialog.close();
+  editingPaymentsMemberId = null;
+  render();
 });
 
 els.arrearsForm.addEventListener("submit", (event) => {
@@ -679,7 +765,7 @@ function updateImportPreview() {
 
   const sample = parsed.members
     .slice(0, 5)
-    .map((member) => `${member.name}(${member.faculty || "学部未設定"}・${member.grade}年${member.paidProvided ? `・納金${yen.format(member.paidAmount)}` : ""})`)
+    .map((member) => `${member.name}(${member.faculty || "学部未設定"}・${member.grade}年${member.paidProvided ? `・納金${yen.format(member.paidAmount)}` : ""}${member.balanceProvided ? `・今月末${yen.format(member.currentBalance)}` : ""})`)
     .join("、");
   els.importPreview.textContent = parsed.members.length
     ? `${parsed.members.length}人を読み取りました。${sample}${parsed.members.length > 5 ? "、..." : ""}`
@@ -697,8 +783,15 @@ function importMembersFromPaste(mode) {
   if (mode === "replace") {
     const ok = confirm(`${parsed.members.length}人で部員リストを入れ替えますか？`);
     if (!ok) return;
-    state.members = parsed.members;
-    parsed.members.forEach((member) => applyImportedPayment(member, data));
+    state.members = parsed.members.map(({ statusProvided, paidProvided, paidAmount, balanceProvided, currentBalance, ...member }) => member);
+    parsed.members.forEach((member) => {
+      if (member.statusProvided) {
+        data.pausedMembers[member.id] = member.paused;
+        data.pauseOverrides[member.id] = member.paused;
+      }
+      applyImportedPayment(member, data);
+      applyImportedBalance(member, data);
+    });
     addEvent(`Excel貼り付けから${parsed.members.length}人で部員リストを入れ替え`);
   } else {
     let added = 0;
@@ -716,15 +809,17 @@ function importMembersFromPaste(mode) {
           data.pausedMembers[existing.id] = importedMember.paused;
           propagatePauseState(existing, importedMember.paused);
         }
+        applyImportedBalance({ ...importedMember, id: existing.id }, data);
         existing.notes = importedMember.notes || existing.notes;
         updated += 1;
         return;
       }
 
-      const { statusProvided, paidProvided, paidAmount, ...newMember } = importedMember;
+      const { statusProvided, paidProvided, paidAmount, balanceProvided, currentBalance, ...newMember } = importedMember;
       state.members.push(newMember);
       data.pausedMembers[newMember.id] = newMember.paused;
       applyImportedPayment(importedMember, data);
+      applyImportedBalance(importedMember, data);
       if (statusProvided) {
         data.pauseOverrides[newMember.id] = newMember.paused;
         propagatePauseState(newMember, newMember.paused);
@@ -745,6 +840,13 @@ function applyImportedPayment(member, data) {
   data.payments[member.id] = amount > 0
     ? [{ id: crypto.randomUUID(), amount, method: "振込", at: new Date().toISOString() }]
     : [];
+}
+
+function applyImportedBalance(member, data) {
+  if (!member.balanceProvided) return;
+  data.balanceAdjustments[member.id] = 0;
+  const calculatedDue = memberLedger(member).due;
+  data.balanceAdjustments[member.id] = Number(member.currentBalance) - calculatedDue;
 }
 
 function parseImportedMembers(text) {
@@ -793,6 +895,7 @@ function importColumnIndexes(headers) {
     name: find("名前", "部員名"),
     arrears: find("先月末", "先月までの滞納", "持越"),
     paid: find("納金", "入金", "入金額", "納入額", "支払額"),
+    balance: find("今月末", "月末残高", "現在滞納", "滞納残"),
     status: find("状態"),
     notes: find("備考"),
   };
@@ -805,6 +908,7 @@ function fallbackColumnIndexes() {
     name: 3,
     arrears: 4,
     paid: 8,
+    balance: 9,
     status: -1,
     notes: 10,
   };
@@ -825,6 +929,8 @@ function importedRowToMember(row, indexes) {
     priorArrears: parseAmount(row[indexes.arrears]),
     paidProvided: indexes.paid >= 0,
     paidAmount: indexes.paid >= 0 ? parseAmount(row[indexes.paid]) : 0,
+    balanceProvided: indexes.balance >= 0,
+    currentBalance: indexes.balance >= 0 ? parseAmount(row[indexes.balance]) : 0,
     notes: row[indexes.notes] || "",
   };
 }
@@ -841,7 +947,7 @@ function parseGrade(value) {
 }
 
 function parseAmount(value) {
-  const normalized = String(value || "").replace(/[￥¥,\s]/g, "");
+  const normalized = String(value || "").normalize("NFKC").replace(/[￥¥,\s]/g, "");
   const amount = Number(normalized);
   return Number.isFinite(amount) ? amount : 0;
 }
@@ -966,6 +1072,7 @@ els.exportExcel.addEventListener("click", () => {
           : "2000";
       const chargeFormula = `=${monthlyFeeFormula}+IF(F${rowNumber}=1,$F$3,0)+IF(G${rowNumber}=1,$G$3,0)`;
       const balanceFormula = `=H${rowNumber}-I${rowNumber}`;
+      const balanceAdjustment = Number(data.balanceAdjustments[member.id]) || 0;
       const debtClass = ledger.due > 0 ? "arrears" : "no-arrears";
 
       return `
@@ -977,7 +1084,7 @@ els.exportExcel.addEventListener("click", () => {
           <td class="${ledger.priorArrears > 0 ? "arrears" : "no-arrears"}">${ledger.priorArrears}</td>
           <td>${ledger.attendance[0] ? 1 : 0}</td>
           <td>${ledger.attendance[1] ? 1 : 0}</td>
-          <td class="${excelAmountClass(ledger.billed)}">=E${rowNumber}+${chargeFormula.slice(1)}</td>
+          <td class="${excelAmountClass(ledger.billed)}">=E${rowNumber}+${chargeFormula.slice(1)}+(${balanceAdjustment})</td>
           <td class="${excelAmountClass(ledger.paid)}">${ledger.paid}</td>
           <td class="${debtClass}">${balanceFormula}</td>
           <td class="notes">${escapeHtml(member.notes || "")}</td>

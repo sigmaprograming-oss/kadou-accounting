@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>華道部 会計管理</title>
-    <link rel="stylesheet" href="./styles.css?v=arrears-rollover-20261002" />
+    <link rel="stylesheet" href="./styles.css?v=payment-edit-20261002" />
   </head>
   <body>
     <main class="app">
@@ -139,6 +139,21 @@
         </form>
       </dialog>
 
+      <dialog id="paymentEditDialog" class="wide-dialog">
+        <form method="dialog" id="paymentEditForm" class="dialog-form">
+          <div>
+            <p id="paymentEditMember" class="dialog-kicker"></p>
+            <h2>今月の入金を修正</h2>
+          </div>
+          <div id="paymentEditRows" class="payment-edit-rows"></div>
+          <button id="addPaymentRow" type="button">入金行を追加</button>
+          <menu>
+            <button value="cancel" type="button" id="cancelPaymentEdit">キャンセル</button>
+            <button value="confirm" type="submit">保存</button>
+          </menu>
+        </form>
+      </dialog>
+
       <dialog id="arrearsDialog">
         <form method="dialog" id="arrearsForm" class="dialog-form">
           <div>
@@ -204,6 +219,6 @@
       </section>
     </main>
 
-    <script src="./app.js?v=mobile-import-payments-20261002"></script>
+    <script src="./app.js?v=payment-edit-20261002"></script>
   </body>
 </html>

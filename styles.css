@@ -471,6 +471,22 @@ dialog::backdrop {
   gap: 16px;
 }
 
+.payment-edit-rows {
+  display: grid;
+  gap: 8px;
+}
+
+.payment-edit-row {
+  display: grid;
+  grid-template-columns: minmax(100px, 1fr) minmax(100px, 140px) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.payment-edit-row button {
+  color: var(--red);
+}
+
 .dialog-kicker {
   margin: 0 0 4px;
   color: var(--muted);
