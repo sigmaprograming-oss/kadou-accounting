@@ -1147,18 +1147,18 @@ els.exportExcel.addEventListener("click", () => {
       <head>
         <meta charset="UTF-8" />
         <style>
-          table { border-collapse: collapse; table-layout: fixed; width: 1250px; font-family: Arial, sans-serif; }
-          td, th { border: 1px solid #b7c3cc; padding: 7px 8px; height: 28px; vertical-align: middle; mso-number-format: "#,##0"; }
-          col.index { width: 55px; }
-          col.faculty { width: 110px; }
-          col.grade { width: 65px; }
-          col.name { width: 145px; }
-          col.money { width: 115px; }
-          col.attendance { width: 85px; }
-          col.notes { width: 255px; }
-          .title { font-size: 16px; font-weight: bold; border: 0; height: 34px; }
-          .meta { border: 0; color: #555; height: 24px; }
-          th { background: #eaf0f5; font-weight: bold; text-align: center; height: 32px; white-space: nowrap; }
+          table { border-collapse: collapse; table-layout: fixed; width: 890px; font-family: Arial, sans-serif; font-size: 10pt; }
+          td, th { border: 1px solid #b7c3cc; padding: 4px 5px; height: 23px; vertical-align: middle; mso-number-format: "#,##0"; }
+          col.index { width: 38px; }
+          col.faculty { width: 78px; }
+          col.grade { width: 48px; }
+          col.name { width: 105px; }
+          col.money { width: 83px; }
+          col.attendance { width: 58px; }
+          col.notes { width: 170px; }
+          .title { font-size: 14px; font-weight: bold; border: 0; height: 28px; }
+          .meta { border: 0; color: #555; height: 21px; }
+          th { background: #eaf0f5; font-weight: bold; text-align: center; height: 27px; white-space: nowrap; }
           td.index, td:nth-child(3), td:nth-child(6), td:nth-child(7), td:nth-child(8), td:nth-child(9), td:nth-child(10) { text-align: center; }
           td:nth-child(5), td:nth-child(8), td:nth-child(9), td:nth-child(10) { text-align: right; }
           td.notes { mso-number-format: "\\@"; white-space: normal; }
@@ -1244,16 +1244,16 @@ els.exportArrears.addEventListener("click", () => {
   }).join("");
   const html = `
     <html><head><meta charset="UTF-8" /><style>
-      table { border-collapse: collapse; table-layout: fixed; width: 440px; font-family: Arial, sans-serif; }
-      td, th { border: 1px solid #b7c3cc; padding: 8px 10px; height: 30px; vertical-align: middle; mso-number-format: "#,##0"; }
-      col.name { width: 270px; } col.balance { width: 170px; }
-      th { background: #eaf0f5; font-weight: bold; text-align: center; height: 34px; }
+      table { border-collapse: collapse; table-layout: fixed; width: 230px; font-family: Arial, sans-serif; font-size: 10pt; }
+      td, th { border: 1px solid #b7c3cc; padding: 5px 6px; height: 24px; vertical-align: middle; mso-number-format: "#,##0"; }
+      col.name { width: 125px; } col.balance { width: 105px; }
+      th { background: #eaf0f5; font-weight: bold; text-align: center; height: 27px; }
       td.balance { text-align: right; }
       .name { color: #000000 !important; }
       .arrears-positive { color: #ff0000; font-weight: bold; }
       .arrears-nonpositive { color: #0070c0; font-weight: bold; }
     </style></head><body><table><colgroup>
-      <col class="name" width="270" /><col class="balance" width="170" />
+      <col class="name" width="125" /><col class="balance" width="105" />
     </colgroup><tr><th>名前</th><th>今月滞納</th></tr>${rowsHtml}</table></body></html>`;
   downloadFile(`華道部会計_${selectedMonth}_今月滞納.xls`, html, "application/vnd.ms-excel;charset=utf-8");
 });
