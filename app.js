@@ -850,7 +850,10 @@ function parseImportedMembers(text) {
   );
   const headers = headerIndex >= 0 ? rows[headerIndex].map(normalizeHeader) : [];
   const dataRows = rows.slice(headerIndex >= 0 ? headerIndex + 1 : 0);
-  const indexes = headerIndex >= 0 ? importColumnIndexes(headers) : fallbackColumnIndexes();
+  const dateText = headerIndex >= 0
+    ? rows.slice(0, headerIndex).flat().find((cell) => /\d{1,2}月\s*\d{1,2}日/.test(cell)) || ""
+    : "";
+  const indexes = headerIndex >= 0 ? importColumnIndexes(headers, lessonIndexForImportDate(dateText)) : fallbackColumnIndexes();
 
   const members = dataRows
     .map((row) => importedRowToMember(row, indexes))
@@ -873,7 +876,15 @@ function normalizeHeader(value) {
     .replace("氏名", "名前");
 }
 
-function importColumnIndexes(headers) {
+function lessonIndexForImportDate(dateText) {
+  const match = String(dateText).match(/(\d{1,2})月\s*(\d{1,2})日/);
+  if (!match) return 0;
+  const monthDay = `${String(Number(match[1])).padStart(2, "0")}-${String(Number(match[2])).padStart(2, "0")}`;
+  const lessonIndex = monthData().lessons.findIndex((lesson) => lesson.date.endsWith(monthDay));
+  return lessonIndex >= 0 ? lessonIndex : 0;
+}
+
+function importColumnIndexes(headers, singleAttendanceIndex = 0) {
   const find = (...names) => headers.findIndex((header) => names.includes(header));
   const dayColumns = headers
     .map((header, index) => ({ header, index }))
@@ -882,17 +893,32 @@ function importColumnIndexes(headers) {
     const normalized = header
       .replace(/^(?:第)?([一二])/, (_, kanji) => kanji === "一" ? "1" : "2")
       .replace(/(?:回目|回|日)$/, "");
-    return new RegExp(`^(?:第)?(?:お?稽古|出席|参加|lesson|attendance)?${number}$`, "i").test(normalized);
+    return new RegExp(`^(?:第)?(?:お?稽古|出欠|出席|参加|lesson|attendance)?${number}$`, "i").test(normalized);
   });
+  const genericAttendanceColumns = headers
+    .map((header, index) => ({ header, index }))
+    .filter(({ header }) => ["出欠", "出欠状況", "出席状況", "参加状況"].includes(header));
   const lesson1 = findLessonColumn(1);
   const lesson2 = findLessonColumn(2);
+  const genericAttendance = genericAttendanceColumns.length === 1 ? genericAttendanceColumns[0].index : -1;
+  const lessonColumns = [
+    lesson1 >= 0 ? lesson1 : (dayColumns[0]?.index ?? -1),
+    lesson2 >= 0 ? lesson2 : (dayColumns[1]?.index ?? -1),
+  ];
+  if (genericAttendance >= 0 && lessonColumns[singleAttendanceIndex] < 0) {
+    lessonColumns[singleAttendanceIndex] = genericAttendance;
+  } else if (genericAttendanceColumns.length >= 2) {
+    genericAttendanceColumns.slice(0, 2).forEach(({ index }, lessonIndex) => {
+      if (lessonColumns[lessonIndex] < 0) lessonColumns[lessonIndex] = index;
+    });
+  }
   return {
     faculty: find("学部", "学部名", "所属学部"),
     grade: find("学年", "年", "年次", "学年次"),
     name: find("名前", "部員名"),
     arrears: find("先月末", "先月までの滞納", "持越"),
-    lesson1: lesson1 >= 0 ? lesson1 : (dayColumns[0]?.index ?? -1),
-    lesson2: lesson2 >= 0 ? lesson2 : (dayColumns[1]?.index ?? -1),
+    lesson1: lessonColumns[0],
+    lesson2: lessonColumns[1],
     paid: find("納金", "入金", "入金額", "納入額", "支払額"),
     balance: find("今月末", "月末残高", "現在滞納", "滞納残"),
     status: find("状態"),
@@ -943,7 +969,7 @@ function importedRowToMember(row, indexes) {
 function parseAttendance(value) {
   const normalized = String(value || "").normalize("NFKC").trim().toLowerCase();
   if (!normalized) return true;
-  if (/^(?:-|ー|―|不参加|欠席|未出席|no|false|0)$/i.test(normalized)) return false;
+  if (/^(?:-|ー|―|×|✕|x|不参加|欠席|未出席|no|false|0)$/i.test(normalized)) return false;
   return /^(?:1(?:\.0)?|○|◯|〇|●|✓|✔|レ|参加(?:済|しました)?|出席(?:済|しました)?|出|済|有|true|yes|y)$/i.test(normalized);
 }
 
