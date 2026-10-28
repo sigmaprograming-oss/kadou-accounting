@@ -67,6 +67,9 @@ const els = {
   importText: document.querySelector("#importText"),
   importPreview: document.querySelector("#importPreview"),
   cancelImport: document.querySelector("#cancelImport"),
+  importLesson1: document.querySelector("#importLesson1"),
+  importLesson2: document.querySelector("#importLesson2"),
+  importMemberInfo: document.querySelector("#importMemberInfo"),
   openImport: document.querySelector("#openImport"),
   saveNow: document.querySelector("#saveNow"),
   saveStatus: document.querySelector("#saveStatus"),
@@ -759,10 +762,10 @@ els.cancelImport.addEventListener("click", () => {
   els.importDialog.close();
 });
 
-els.importForm.addEventListener("submit", (event) => {
-  event.preventDefault();
-  importAttendanceFromPaste();
-});
+els.importForm.addEventListener("submit", (event) => event.preventDefault());
+els.importLesson1.addEventListener("click", () => importAttendanceFromPaste(0));
+els.importLesson2.addEventListener("click", () => importAttendanceFromPaste(1));
+els.importMemberInfo.addEventListener("click", importMemberInfoFromPaste);
 
 function updateImportPreview() {
   const parsed = parseImportedMembers(els.importText.value);
@@ -773,14 +776,14 @@ function updateImportPreview() {
 
   const sample = parsed.members
     .slice(0, 5)
-    .map((member) => `${member.name}(稽古${member.attendance.filter(Boolean).length}回)`)
+    .map((member) => `${member.name}(${member.faculty || "学部未設定"}・${member.grade}年)`)
     .join("、");
   els.importPreview.textContent = parsed.members.length
-    ? `${parsed.members.length}人分を読み取りました。${sample}${parsed.members.length > 5 ? "、..." : ""}。出席列の空欄は出席として扱います。名前が名簿と一致する人の出席だけを反映し、名簿や他の情報は変更しません。`
+    ? `${parsed.members.length}人分を読み取りました。${sample}${parsed.members.length > 5 ? "、..." : ""}。出欠取込では空欄を出席、「×」を欠席として扱います。下のボタンで出欠または名前・学年・学部を選べます。休部状態は変更しません。`
     : "名前を読み取れませんでした。名前列を含む表を貼り付けてください。";
 }
 
-function importAttendanceFromPaste() {
+function importAttendanceFromPaste(targetLessonIndex) {
   const parsed = parseImportedMembers(els.importText.value);
   if (!parsed.members.length) {
     alert("読み取れる部員がありませんでした。Excelの表をコピーして貼り付けてください。");
@@ -802,7 +805,16 @@ function importAttendanceFromPaste() {
       unmatched += 1;
       return;
     }
-    applyImportedAttendance({ ...importedMember, id: existing.id }, data);
+    const providedIndexes = importedMember.attendanceColumns
+      .map((provided, index) => provided ? index : -1)
+      .filter((index) => index >= 0);
+    const sourceLessonIndex = providedIndexes.includes(targetLessonIndex)
+      ? targetLessonIndex
+      : providedIndexes.length === 1 ? providedIndexes[0] : -1;
+    if (sourceLessonIndex < 0) return;
+    const attendance = memberAttendance(existing.id, data);
+    attendance[targetLessonIndex] = importedMember.attendance[sourceLessonIndex];
+    data.attendance[existing.id] = attendance;
     updated += 1;
   });
 
@@ -811,28 +823,50 @@ function importAttendanceFromPaste() {
     return;
   }
 
-  addEvent(`Excelから${updated}人分の出席データを反映`);
+  addEvent(`Excelから${updated}人分のお稽古${targetLessonIndex + 1}の出欠を反映`);
   saveState();
   els.importDialog.close();
   render();
-  showSaveStatus(`出席を${updated}人分反映しました${unmatched ? `（名簿にない名前${unmatched}人はスキップ）` : ""}`, true);
+  showSaveStatus(`お稽古${targetLessonIndex + 1}の出欠を${updated}人分反映しました${unmatched ? `（名簿にない名前${unmatched}人はスキップ）` : ""}`, true);
 }
 
-function applyImportedPayment(member, data) {
-  if (!member.paidProvided) return;
-  const amount = Math.max(Number(member.paidAmount) || 0, 0);
-  data.payments[member.id] = amount > 0
-    ? [{ id: crypto.randomUUID(), amount, method: "振込", at: new Date().toISOString() }]
-    : [];
-}
+function importMemberInfoFromPaste() {
+  const parsed = parseImportedMembers(els.importText.value);
+  if (!parsed.members.length) {
+    alert("読み取れる名前がありませんでした。Excelの表をコピーして貼り付けてください。");
+    return;
+  }
 
-function applyImportedAttendance(member, data) {
-  if (!member.attendanceProvided) return;
-  const attendance = memberAttendance(member.id, data);
-  member.attendance.forEach((isAttending, index) => {
-    if (member.attendanceColumns[index]) attendance[index] = isAttending;
+  let added = 0;
+  let updated = 0;
+  parsed.members.forEach((importedMember) => {
+    const existing = state.members.find((member) => cleanImportedName(member.name) === importedMember.name);
+    if (existing) {
+      if (importedMember.faculty) existing.faculty = importedMember.faculty;
+      if (importedMember.gradeProvided && importedMember.gradeValue) existing.grade = importedMember.grade;
+      updated += 1;
+      return;
+    }
+
+    state.members.push({
+      id: importedMember.id,
+      name: importedMember.name,
+      faculty: importedMember.faculty,
+      grade: importedMember.grade,
+      joinedMonth: selectedMonth,
+      paused: false,
+      priorArrears: 0,
+      notes: "",
+    });
+    added += 1;
   });
-  data.attendance[member.id] = attendance;
+
+  if (!added && !updated) return;
+  addEvent(`Excelから部員情報を取込（${added}人追加、${updated}人更新）`);
+  saveState();
+  els.importDialog.close();
+  render();
+  showSaveStatus(`部員情報を取り込みました（${added}人追加、${updated}人更新）。休部状態は変更していません`, true);
 }
 
 function parseImportedMembers(text) {
@@ -950,6 +984,8 @@ function importedRowToMember(row, indexes) {
     name,
     faculty: indexes.faculty >= 0 ? String(row[indexes.faculty] || "").trim() : "",
     grade: parseGrade(row[indexes.grade]),
+    gradeProvided: indexes.grade >= 0,
+    gradeValue: String(row[indexes.grade] || "").trim(),
     joinedMonth: selectedMonth,
     paused: row[indexes.status] ? row[indexes.status].includes("休") : false,
     statusProvided: indexes.status >= 0,

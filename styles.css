@@ -532,10 +532,16 @@ dialog::backdrop {
 
 menu {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
   margin: 0;
   padding: 0;
+}
+
+#importForm menu button:not(#cancelImport) {
+  flex: 1 1 170px;
+  min-height: 40px;
 }
 
 @media (max-width: 920px) {

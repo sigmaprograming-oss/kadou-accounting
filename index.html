@@ -196,16 +196,18 @@
         <form method="dialog" id="importForm" class="dialog-form">
           <div>
             <p class="dialog-kicker">Excelで表をコピーして貼り付け</p>
-            <h2>Excelから出席データを反映</h2>
+            <h2>Excelデータの取込</h2>
           </div>
           <div class="field">
             <label for="importText">貼り付け内容</label>
-            <textarea id="importText" rows="10" placeholder="No.	学部	学年	名前	先月末	..."></textarea>
+            <textarea id="importText" rows="10" placeholder="学年	学部	氏名	出欠"></textarea>
           </div>
           <p id="importPreview" class="import-preview">貼り付けると読み取り結果が出ます。</p>
           <menu>
             <button value="cancel" type="button" id="cancelImport">キャンセル</button>
-            <button value="confirm" type="submit">出席データを反映</button>
+            <button value="lesson1" type="button" id="importLesson1">お稽古1の出欠を反映</button>
+            <button value="lesson2" type="button" id="importLesson2">お稽古2の出欠を反映</button>
+            <button value="members" type="button" id="importMemberInfo">名前・学年・学部を取込</button>
           </menu>
         </form>
       </dialog>
@@ -219,6 +221,6 @@
       </section>
     </main>
 
-    <script src="./app.js?v=attendance-column-20261028"></script>
+    <script src="./app.js?v=separate-import-actions-20261028"></script>
   </body>
 </html>
