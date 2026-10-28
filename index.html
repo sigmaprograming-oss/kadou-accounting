@@ -196,7 +196,7 @@
         <form method="dialog" id="importForm" class="dialog-form">
           <div>
             <p class="dialog-kicker">Excelで表をコピーして貼り付け</p>
-            <h2>部員をまとめて登録</h2>
+            <h2>Excelから出席データを反映</h2>
           </div>
           <div class="field">
             <label for="importText">貼り付け内容</label>
@@ -205,8 +205,7 @@
           <p id="importPreview" class="import-preview">貼り付けると読み取り結果が出ます。</p>
           <menu>
             <button value="cancel" type="button" id="cancelImport">キャンセル</button>
-            <button value="append" type="button" id="appendImport">追加登録</button>
-            <button value="replace" type="submit">全員入れ替え</button>
+            <button value="confirm" type="submit">出席データを反映</button>
           </menu>
         </form>
       </dialog>
@@ -220,6 +219,6 @@
       </section>
     </main>
 
-    <script src="./app.js?v=compact-layout-20261003"></script>
+    <script src="./app.js?v=attendance-only-import-20261028"></script>
   </body>
 </html>

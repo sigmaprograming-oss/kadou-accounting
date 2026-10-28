@@ -67,7 +67,6 @@ const els = {
   importText: document.querySelector("#importText"),
   importPreview: document.querySelector("#importPreview"),
   cancelImport: document.querySelector("#cancelImport"),
-  appendImport: document.querySelector("#appendImport"),
   openImport: document.querySelector("#openImport"),
   saveNow: document.querySelector("#saveNow"),
   saveStatus: document.querySelector("#saveStatus"),
@@ -760,13 +759,9 @@ els.cancelImport.addEventListener("click", () => {
   els.importDialog.close();
 });
 
-els.appendImport.addEventListener("click", () => {
-  importMembersFromPaste("append");
-});
-
 els.importForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  importMembersFromPaste("replace");
+  importAttendanceFromPaste();
 });
 
 function updateImportPreview() {
@@ -778,78 +773,49 @@ function updateImportPreview() {
 
   const sample = parsed.members
     .slice(0, 5)
-    .map((member) => `${member.name}(${member.faculty || "学部未設定"}・${member.grade}年・稽古${member.attendance.filter(Boolean).length}回${member.paidProvided ? `・納金${yen.format(member.paidAmount)}` : ""}${member.balanceProvided ? `・Excel今月末${yen.format(member.currentBalance)}` : ""})`)
+    .map((member) => `${member.name}(稽古${member.attendance.filter(Boolean).length}回)`)
     .join("、");
   els.importPreview.textContent = parsed.members.length
-    ? `${parsed.members.length}人を読み取りました。${sample}${parsed.members.length > 5 ? "、..." : ""}。請求は当月の部費・稽古代、滞納は持越＋請求−納金で計算します。`
+    ? `${parsed.members.length}人分を読み取りました。${sample}${parsed.members.length > 5 ? "、..." : ""}。出席列の空欄は出席として扱います。名前が名簿と一致する人の出席だけを反映し、名簿や他の情報は変更しません。`
     : "名前を読み取れませんでした。名前列を含む表を貼り付けてください。";
 }
 
-function importMembersFromPaste(mode) {
+function importAttendanceFromPaste() {
   const parsed = parseImportedMembers(els.importText.value);
   if (!parsed.members.length) {
     alert("読み取れる部員がありませんでした。Excelの表をコピーして貼り付けてください。");
     return;
   }
 
-  const data = monthData();
-  if (mode === "replace") {
-    const ok = confirm(`${parsed.members.length}人で部員リストを入れ替えますか？`);
-    if (!ok) return;
-    state.members = parsed.members.map(({ statusProvided, paidProvided, paidAmount, balanceProvided, currentBalance, attendanceProvided, attendance, attendanceColumns, notesProvided, ...member }) => {
-      const { notes, ...rosterMember } = member;
-      return rosterMember;
-    });
-    parsed.members.forEach((member) => {
-      if (member.statusProvided) {
-        data.pausedMembers[member.id] = member.paused;
-        data.pauseOverrides[member.id] = member.paused;
-      }
-      applyImportedAttendance(member, data);
-      applyImportedPayment(member, data);
-      if (member.notesProvided) data.notes[member.id] = member.notes;
-    });
-    addEvent(`Excel貼り付けから${parsed.members.length}人で部員リストを入れ替え`);
-  } else {
-    let added = 0;
-    let updated = 0;
-    parsed.members.forEach((importedMember) => {
-      const existing = state.members.find((member) => member.name === importedMember.name);
-      if (existing) {
-        if (importedMember.faculty) existing.faculty = importedMember.faculty;
-        existing.grade = importedMember.grade;
-        existing.priorArrears = importedMember.priorArrears;
-        data.arrearsOverrides[existing.id] = importedMember.priorArrears;
-        applyImportedAttendance({ ...importedMember, id: existing.id }, data);
-        applyImportedPayment({ ...importedMember, id: existing.id }, data);
-        if (importedMember.statusProvided) {
-          data.pauseOverrides[existing.id] = importedMember.paused;
-          data.pausedMembers[existing.id] = importedMember.paused;
-          propagatePauseState(existing, importedMember.paused);
-        }
-        if (importedMember.notesProvided) data.notes[existing.id] = importedMember.notes;
-        updated += 1;
-        return;
-      }
-
-      const { statusProvided, paidProvided, paidAmount, balanceProvided, currentBalance, attendanceProvided, attendance, attendanceColumns, notesProvided, notes, ...newMember } = importedMember;
-      state.members.push(newMember);
-      data.pausedMembers[newMember.id] = newMember.paused;
-      applyImportedAttendance(importedMember, data);
-      applyImportedPayment(importedMember, data);
-      if (notesProvided) data.notes[newMember.id] = notes;
-      if (statusProvided) {
-        data.pauseOverrides[newMember.id] = newMember.paused;
-        propagatePauseState(newMember, newMember.paused);
-      }
-      added += 1;
-    });
-    addEvent(`Excel貼り付けから${added}人追加、${updated}人更新`);
+  const attendanceRows = parsed.members.filter((member) => member.attendanceProvided);
+  if (!attendanceRows.length) {
+    alert("出席欄が見つかりませんでした。見出しを「稽古1・稽古2」または「○日」の列にして貼り付けてください。");
+    return;
   }
 
+  const data = monthData();
+  let updated = 0;
+  let unmatched = 0;
+  attendanceRows.forEach((importedMember) => {
+    const existing = state.members.find((member) => cleanImportedName(member.name) === importedMember.name);
+    if (!existing) {
+      unmatched += 1;
+      return;
+    }
+    applyImportedAttendance({ ...importedMember, id: existing.id }, data);
+    updated += 1;
+  });
+
+  if (!updated) {
+    alert("名簿と一致する名前がありませんでした。Excelの名前を名簿と同じ表記にしてください。");
+    return;
+  }
+
+  addEvent(`Excelから${updated}人分の出席データを反映`);
   saveState();
   els.importDialog.close();
   render();
+  showSaveStatus(`出席を${updated}人分反映しました${unmatched ? `（名簿にない名前${unmatched}人はスキップ）` : ""}`, true);
 }
 
 function applyImportedPayment(member, data) {
@@ -912,8 +878,14 @@ function importColumnIndexes(headers) {
   const dayColumns = headers
     .map((header, index) => ({ header, index }))
     .filter(({ header }) => /^\d{1,2}日$/.test(header));
-  const lesson1 = headers.findIndex((header) => header.startsWith("稽古1"));
-  const lesson2 = headers.findIndex((header) => header.startsWith("稽古2"));
+  const findLessonColumn = (number) => headers.findIndex((header) => {
+    const normalized = header
+      .replace(/^(?:第)?([一二])/, (_, kanji) => kanji === "一" ? "1" : "2")
+      .replace(/(?:回目|回|日)$/, "");
+    return new RegExp(`^(?:第)?(?:お?稽古|出席|参加|lesson|attendance)?${number}$`, "i").test(normalized);
+  });
+  const lesson1 = findLessonColumn(1);
+  const lesson2 = findLessonColumn(2);
   return {
     faculty: find("学部", "学部名", "所属学部"),
     grade: find("学年", "年", "年次", "学年次"),
@@ -970,7 +942,9 @@ function importedRowToMember(row, indexes) {
 
 function parseAttendance(value) {
   const normalized = String(value || "").normalize("NFKC").trim().toLowerCase();
-  return ["1", "○", "◯", "〇", "✓", "✔", "参加", "出席", "true", "yes"].includes(normalized);
+  if (!normalized) return true;
+  if (/^(?:-|ー|―|不参加|欠席|未出席|no|false|0)$/i.test(normalized)) return false;
+  return /^(?:1(?:\.0)?|○|◯|〇|●|✓|✔|レ|参加(?:済|しました)?|出席(?:済|しました)?|出|済|有|true|yes|y)$/i.test(normalized);
 }
 
 function cleanImportedName(value) {
